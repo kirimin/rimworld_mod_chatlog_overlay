@@ -1,0 +1,7 @@
+F:\Program Files (x86)\Steam\steamapps\common\RimWorld\Mods\ChatLogOverlay\Source\ChatLogOverlay\obj\Debug\ChatLogOverlay.csproj.AssemblyReference.cache
+F:\Program Files (x86)\Steam\steamapps\common\RimWorld\Mods\ChatLogOverlay\Source\ChatLogOverlay\obj\Debug\ChatLogOverlay.csproj.CoreCompileInputs.cache
+F:\Program Files (x86)\Steam\steamapps\common\RimWorld\Mods\ChatLogOverlay\Assemblies\ChatLogOverlay.dll
+F:\Program Files (x86)\Steam\steamapps\common\RimWorld\Mods\ChatLogOverlay\Assemblies\ChatLogOverlay.pdb
+F:\Program Files (x86)\Steam\steamapps\common\RimWorld\Mods\ChatLogOverlay\Source\ChatLogOverlay\obj\Debug\ChatLogO.2D5A1265.Up2Date
+F:\Program Files (x86)\Steam\steamapps\common\RimWorld\Mods\ChatLogOverlay\Source\ChatLogOverlay\obj\Debug\ChatLogOverlay.dll
+F:\Program Files (x86)\Steam\steamapps\common\RimWorld\Mods\ChatLogOverlay\Source\ChatLogOverlay\obj\Debug\ChatLogOverlay.pdb
