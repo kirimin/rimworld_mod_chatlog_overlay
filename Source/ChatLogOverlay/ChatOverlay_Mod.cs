@@ -10,32 +10,25 @@ public class ChatOverlayMod : Mod
 {
     public static ChatOverlaySettings Settings;
 
-    // UI 状態
     private Vector2 _scrollMods;
     private Vector2 _scrollDefs;
     private string _searchMods = "";
     private string _searchDefs = "";
+    
+    private enum SettingsTab { General, Filters, Advanced }
+    private SettingsTab currentTab = SettingsTab.General;
+
+    private static readonly (SettingsTab Tab, string Label)[] TabData = {
+        (SettingsTab.General, "General"),
+        (SettingsTab.Filters, "Filters"),
+        (SettingsTab.Advanced, "Advanced")
+    };
 
     public ChatOverlayMod(ModContentPack content) : base(content)
     {
-
         Settings = GetSettings<ChatOverlaySettings>();
-
         var h = new Harmony("kirimin.ChatLogOverlay");
         h.PatchAll();
-
-        LongEventHandler.ExecuteWhenFinished(() =>
-        {
-            if (Find.WindowStack != null)
-            {
-                if (!Find.WindowStack.IsOpen<ChatOverlayWindow>())
-                    Find.WindowStack.Add(new ChatOverlayWindow());
-            }
-            else
-            {
-                Log.Warning("[ChatOverlay] WindowStack is null at ExecuteWhenFinished");
-            }
-        });
     }
 
     public override string SettingsCategory() => "Chatlog Overlay";
@@ -45,190 +38,334 @@ public class ChatOverlayMod : Mod
         var listing = new Listing_Standard();
         listing.Begin(inRect);
 
-        // --- オーバーレイ表示/非表示トグルボタン ---
-        bool isOpen = Find.WindowStack?.IsOpen<ChatOverlayWindow>() ?? false;
-        string btnLabel = isOpen ? "Hide Overlay" : "Show Overlay";
-        if (Widgets.ButtonText(listing.GetRect(30f), btnLabel))
+        DrawTabButtons(listing);
+        listing.Gap();
+
+        switch (currentTab)
         {
-            if (isOpen)
-            {
-                // ウィンドウを閉じる
-                var win = Find.WindowStack.Windows.FirstOrDefault(w => w is ChatOverlayWindow);
-                if (win != null) win.Close();
-            }
-            else
-            {
-                // ウィンドウを開く
-                Find.WindowStack.Add(new ChatOverlayWindow());
-            }
+            case SettingsTab.General:
+                DrawGeneralTab(listing, inRect);
+                break;
+            case SettingsTab.Filters:
+                DrawFiltersTab(listing, inRect);
+                break;
+            case SettingsTab.Advanced:
+                DrawAdvancedTab(listing, inRect);
+                break;
         }
 
-        // ログ全クリア
+        listing.End();
+    }
+
+    private void DrawTabButtons(Listing_Standard listing)
+    {
+        var tabRect = listing.GetRect(30f);
+        float tabWidth = tabRect.width / TabData.Length;
+        Color originalColor = GUI.color;
+
+        for (int i = 0; i < TabData.Length; i++)
+        {
+            var (tab, label) = TabData[i];
+            var rect = new Rect(tabRect.x + i * tabWidth, tabRect.y, 
+                               i < TabData.Length - 1 ? tabWidth - 2f : tabWidth, 30f);
+            
+            bool isActive = currentTab == tab;
+            
+            if (!isActive)
+                GUI.color = new Color(0.7f, 0.7f, 0.7f, 1f);
+            
+            if (Widgets.ButtonText(rect, label))
+                currentTab = tab;
+            
+            GUI.color = originalColor;
+
+            if (isActive)
+            {
+                var underlineRect = new Rect(rect.x, rect.yMax - 2f, rect.width, 2f);
+                Widgets.DrawBoxSolid(underlineRect, Color.white);
+            }
+        }
+    }
+
+    private void DrawGeneralTab(Listing_Standard listing, Rect inRect)
+    {
+        bool isVisible = ChatOverlayRenderer.IsVisible;
+        string btnLabel = isVisible ? "Hide Overlay" : "Show Overlay";
+        if (Widgets.ButtonText(listing.GetRect(30f), btnLabel))
+        {
+            ChatOverlayRenderer.IsVisible = !isVisible;
+        }
+
         if (Widgets.ButtonText(listing.GetRect(30f), "Clear overlay logs"))
         {
             ChatState.Clear();
         }
         listing.Gap();
 
-        // --- 既存の設定UI ---
-        // モード選択
-        listing.Label("Filter mode");
-        if (listing.RadioButton("Off (show all)", Settings.Mode == ChatOverlayFilterMode.Off))
+        DrawOpacitySlider(listing);
+        DrawUsageInstructions(listing);
+    }
+
+    private void DrawOpacitySlider(Listing_Standard listing)
+    {
+        listing.Label($"Background Opacity: {Settings.BackgroundOpacity:F2} (0.0 = Transparent, 1.0 = Opaque)");
+        float newOpacity = listing.Slider(Settings.BackgroundOpacity, 0.0f, 1.0f);
+        if (Math.Abs(newOpacity - Settings.BackgroundOpacity) > 0.001f)
         {
-            if (Settings.Mode != ChatOverlayFilterMode.Off)
-            {
-                Settings.Mode = ChatOverlayFilterMode.Off;
-                Settings.Write(); // 追加
-            }
+            Settings.BackgroundOpacity = newOpacity;
+            Settings.Write();
         }
-        if (listing.RadioButton("Whitelist (only selected)", Settings.Mode == ChatOverlayFilterMode.Whitelist))
+        listing.Gap();
+    }
+
+    private void DrawUsageInstructions(Listing_Standard listing)
+    {
+        var instructions = new[]
         {
-            if (Settings.Mode != ChatOverlayFilterMode.Whitelist)
-            {
-                Settings.Mode = ChatOverlayFilterMode.Whitelist;
-                Settings.Write(); // 追加
-            }
+            "How to use:",
+            "• Drag the title bar (top edge) to move the overlay",
+            "• Drag the bottom-right corner to resize",
+            "• Use the Filters tab to control which logs appear",
+            "• The overlay appears behind game UI elements"
+        };
+
+        foreach (var instruction in instructions)
+        {
+            listing.Label(instruction);
         }
-        // ...Blacklistも同様
+    }
+
+    private void DrawFiltersTab(Listing_Standard listing, Rect inRect)
+    {
+        DrawFilterModeSelection(listing);
         listing.GapLine();
 
-        // プリセットボタン
-        var rectBtns = listing.GetRect(30f);
-        float bw = (rectBtns.width - 18f) / 3f;
-
-        // 1: 全Mod選択
-        if (Widgets.ButtonText(new Rect(rectBtns.x, rectBtns.y, bw, 30f), "Select All Mods"))
+        if (Settings.Mode != ChatOverlayFilterMode.Off)
         {
-            foreach (var m in LoadedModManager.RunningModsListForReading)
-                Settings.PackageIdSet.Add(m.PackageId);
-            Settings.Write(); // 追加
+            DrawModControlButtons(listing);
+            listing.Gap();
+            DrawModsSection(listing, inRect);
         }
-
-        // 2: クリア
-        if (Widgets.ButtonText(new Rect(rectBtns.x + bw + 9f, rectBtns.y, bw, 30f), "Clear All"))
+        else
         {
-            Settings.PackageIdSet.Clear();
-            Settings.DefNameSet.Clear();
-            Settings.Write(); // 追加
+            listing.Label("Filter is currently disabled. All interaction logs will be shown.");
         }
+    }
 
-        // 3: すべての Interaction を選択
-        if (Widgets.ButtonText(new Rect(rectBtns.x + (bw + 9f) * 2f, rectBtns.y, bw, 30f), "Select all interaction types"))
+    private void DrawFilterModeSelection(Listing_Standard listing)
+    {
+        listing.Label("Filter mode");
+        
+        var modes = new[]
         {
-            foreach (var d in DefDatabase<InteractionDef>.AllDefsListForReading)
-                if (!string.IsNullOrEmpty(d?.defName))
-                    Settings.DefNameSet.Add(d.defName);
-            Settings.Write(); // 追加
-        }
-        listing.Gap();
+            (ChatOverlayFilterMode.Off, "Off (show all)"),
+            (ChatOverlayFilterMode.Whitelist, "Whitelist (only selected)")
+        };
 
-        // Mods セクション
-        listing.Label("Mods (packageId) - check to include");
-        var searchRectM = listing.GetRect(24f);
-        _searchMods = Widgets.TextField(searchRectM, _searchMods ?? "");
-        var boxMods = listing.GetRect(180f);
-        Widgets.DrawBox(boxMods);
-        var innerMods = new Rect(0, 0, boxMods.width - 16f, Mathf.Max(180f, LoadedModManager.RunningModsListForReading.Count * 28f));
-        Widgets.BeginScrollView(boxMods, ref _scrollMods, innerMods);
-        float y = 0f;
-
-        foreach (var m in LoadedModManager.RunningModsListForReading.OrderBy(m => m.Name))
+        foreach (var (mode, label) in modes)
         {
-            if (!string.IsNullOrEmpty(_searchMods))
+            if (listing.RadioButton(label, Settings.Mode == mode) && Settings.Mode != mode)
             {
-                var t = _searchMods.ToLowerInvariant();
-                if (!(m.Name?.ToLowerInvariant().Contains(t) == true || m.PackageId?.ToLowerInvariant().Contains(t) == true))
-                    continue;
+                Settings.Mode = mode;
+                Settings.Write();
             }
-
-            bool on = Settings.PackageIdSet.Contains(m.PackageId);
-            var row = new Rect(0, y, innerMods.width, 24f);
-            bool prev = on;
-            Widgets.CheckboxLabeled(row, $"{m.Name} ({m.PackageId})", ref on);
-            if (on) Settings.PackageIdSet.Add(m.PackageId); else Settings.PackageIdSet.Remove(m.PackageId);
-            if (prev != on) Settings.Write(); // 追加
-            y += 24f;
         }
-        Widgets.EndScrollView();
+    }
+
+    private void DrawModControlButtons(Listing_Standard listing)
+    {
+        var buttonRect = listing.GetRect(30f);
+        float buttonWidth = (buttonRect.width - 9f) / 2f;
+
+        // 型を明示的に指定
+        var buttons = new (string Label, Action Action)[]
+        {
+            ("Select All Mods", () => {
+                foreach (var m in LoadedModManager.RunningModsListForReading)
+                    Settings.PackageIdSet.Add(m.PackageId);
+                Settings.Write();
+            }),
+            ("Clear All Mods", () => {
+                Settings.PackageIdSet.Clear();
+                Settings.Write();
+            })
+        };
+
+        for (int i = 0; i < buttons.Length; i++)
+        {
+            var (label, action) = buttons[i];
+            var rect = new Rect(buttonRect.x + i * (buttonWidth + 9f), buttonRect.y, buttonWidth, 30f);
+            if (Widgets.ButtonText(rect, label))
+                action();
+        }
+    }
+
+    private void DrawAdvancedTab(Listing_Standard listing, Rect inRect)
+    {
+        listing.Label("Advanced Settings");
         listing.Gap();
 
-        // InteractionDef セクション（必要な人向け）
+        if (Settings.Mode == ChatOverlayFilterMode.Whitelist)
+        {
+            DrawInteractionControlButtons(listing);
+            listing.Gap();
+            DrawInteractionDefsSection(listing, inRect);
+        }
+        else
+        {
+            listing.Label("Advanced settings are only available when using Whitelist mode.");
+            listing.Label("Switch to Whitelist mode in the Filters tab to access these options.");
+        }
+    }
+
+    private void DrawInteractionControlButtons(Listing_Standard listing)
+    {
+        var buttonRect = listing.GetRect(30f);
+        float buttonWidth = (buttonRect.width - 9f) / 2f;
+
+        // 型を明示的に指定
+        var buttons = new (string Label, Action Action)[]
+        {
+            ("Select All Interactions", () => {
+                foreach (var d in DefDatabase<InteractionDef>.AllDefsListForReading)
+                    if (!string.IsNullOrEmpty(d?.defName))
+                        Settings.DefNameSet.Add(d.defName);
+                Settings.Write();
+            }),
+            ("Clear All Interactions", () => {
+                Settings.DefNameSet.Clear();
+                Settings.Write();
+            })
+        };
+
+        for (int i = 0; i < buttons.Length; i++)
+        {
+            var (label, action) = buttons[i];
+            var rect = new Rect(buttonRect.x + i * (buttonWidth + 9f), buttonRect.y, buttonWidth, 30f);
+            if (Widgets.ButtonText(rect, label))
+                action();
+        }
+    }
+
+    private void DrawInteractionDefsSection(Listing_Standard listing, Rect inRect)
+    {
         listing.Label("Interaction types (InteractionDef.defName)");
-        var searchRectD = listing.GetRect(24f);
-        _searchDefs = Widgets.TextField(searchRectD, _searchDefs ?? "");
+        listing.Label("Note: These settings are for fine-tuning specific interaction types.");
+        
+        var searchRect = listing.GetRect(24f);
+        _searchDefs = Widgets.TextField(searchRect, _searchDefs ?? "");
+        
         var defs = DefDatabase<InteractionDef>.AllDefsListForReading
             .OrderBy(d => d.modContentPack?.Name ?? "Core")
             .ThenBy(d => d.label ?? d.defName)
             .ToList();
 
-        var boxDefs = listing.GetRect(Mathf.Min(220f, inRect.height - listing.CurHeight - 30f));
-        Widgets.DrawBox(boxDefs);
-        float innerH = Mathf.Max(220f, defs.Count * 24f);
-        var innerDefs = new Rect(0, 0, boxDefs.width - 16f, innerH);
-        Widgets.BeginScrollView(boxDefs, ref _scrollDefs, innerDefs);
-        y = 0f;
-        foreach (var d in defs)
-        {
-            if (!string.IsNullOrEmpty(_searchDefs))
-            {
-                var t = _searchDefs.ToLowerInvariant();
-                if (!((d.label ?? d.defName).ToLowerInvariant().Contains(t) ||
-                      (d.defName ?? "").ToLowerInvariant().Contains(t) ||
-                      (d.modContentPack?.Name ?? "").ToLowerInvariant().Contains(t)))
-                    continue;
-            }
-            bool on = Settings.DefNameSet.Contains(d.defName);
-            var row = new Rect(0, y, innerDefs.width, 24f);
-            bool prev = on;
-            Widgets.CheckboxLabeled(row, $"{d.label ?? d.defName} [{d.defName}] - {(d.modContentPack?.Name ?? "Core")}", ref on);
-            if (on) Settings.DefNameSet.Add(d.defName); else Settings.DefNameSet.Remove(d.defName);
-            if (prev != on) Settings.Write(); // 追加
-            y += 24f;
-        }
-        Widgets.EndScrollView();
-
-        listing.End();
+        DrawScrollableDefList(listing, inRect, defs, _searchDefs, ref _scrollDefs, Settings.DefNameSet);
     }
 
-    private void RenderCheckboxList<T>(Listing_Standard listing, string label, IEnumerable<T> items, 
-        Func<T, string> getDisplayName, Func<T, string> getKey, HashSet<string> targetSet, 
-        ref Vector2 scroll, ref string searchText, float height = 180f)
+    private void DrawModsSection(Listing_Standard listing, Rect inRect)
     {
-        listing.Label(label);
+        listing.Label("Mods (packageId) - check to include");
         var searchRect = listing.GetRect(24f);
-        searchText = Widgets.TextField(searchRect, searchText ?? "");
-
-        var searchTextLocal = searchText; // ローカル変数にコピー
-
-        var box = listing.GetRect(height);
-        Widgets.DrawBox(box);
-
-        var filteredItems = string.IsNullOrEmpty(searchTextLocal) 
-            ? items 
-            : items.Where(item => getDisplayName(item).ToLowerInvariant().Contains(searchTextLocal.ToLowerInvariant()));
-
-        var itemList = filteredItems.ToList();
-        var inner = new Rect(0, 0, box.width - 16f, Mathf.Max(height, itemList.Count * 24f));
-
-        Widgets.BeginScrollView(box, ref scroll, inner);
+        _searchMods = Widgets.TextField(searchRect, _searchMods ?? "");
+        
+        var mods = LoadedModManager.RunningModsListForReading.OrderBy(m => m.Name).ToList();
+        
+        var remainingHeight = inRect.height - listing.CurHeight - 50f;
+        var boxRect = listing.GetRect(Mathf.Max(200f, remainingHeight));
+        Widgets.DrawBox(boxRect);
+        
+        var innerRect = new Rect(0, 0, boxRect.width - 16f, Mathf.Max(200f, mods.Count * 28f));
+        Widgets.BeginScrollView(boxRect, ref _scrollMods, innerRect);
+        
         float y = 0f;
-
-        foreach (var item in itemList)
+        foreach (var mod in mods)
         {
-            string key = getKey(item);
-            bool on = targetSet.Contains(key);
-            var row = new Rect(0, y, inner.width, 24f);
-            bool prev = on;
+            if (!IsModVisible(mod, _searchMods)) continue;
 
-            Widgets.CheckboxLabeled(row, getDisplayName(item), ref on);
-
-            if (on) targetSet.Add(key); 
-            else targetSet.Remove(key);
-
-            if (prev != on) Settings.Write();
+            bool isSelected = Settings.PackageIdSet.Contains(mod.PackageId);
+            var row = new Rect(0, y, innerRect.width, 24f);
+            bool prev = isSelected;
+            
+            Widgets.CheckboxLabeled(row, $"{mod.Name} ({mod.PackageId})", ref isSelected);
+            
+            if (isSelected) Settings.PackageIdSet.Add(mod.PackageId);
+            else Settings.PackageIdSet.Remove(mod.PackageId);
+            
+            if (prev != isSelected) Settings.Write();
             y += 24f;
         }
-
         Widgets.EndScrollView();
+    }
+
+    private void DrawScrollableDefList(Listing_Standard listing, Rect inRect, 
+        List<InteractionDef> defs, string searchTerm, ref Vector2 scroll, HashSet<string> selectedSet)
+    {
+        var remainingHeight = inRect.height - listing.CurHeight - 50f;
+        var boxRect = listing.GetRect(Mathf.Max(200f, remainingHeight));
+        Widgets.DrawBox(boxRect);
+        
+        var innerRect = new Rect(0, 0, boxRect.width - 16f, Mathf.Max(200f, defs.Count * 24f));
+        Widgets.BeginScrollView(boxRect, ref scroll, innerRect);
+        
+        float y = 0f;
+        foreach (var def in defs)
+        {
+            if (!IsDefVisible(def, searchTerm)) continue;
+
+            bool isSelected = selectedSet.Contains(def.defName);
+            var row = new Rect(0, y, innerRect.width, 24f);
+            bool prev = isSelected;
+            
+            string label = $"{def.label ?? def.defName} [{def.defName}] - {def.modContentPack?.Name ?? "Core"}";
+            Widgets.CheckboxLabeled(row, label, ref isSelected);
+            
+            if (isSelected) selectedSet.Add(def.defName);
+            else selectedSet.Remove(def.defName);
+            
+            if (prev != isSelected) Settings.Write();
+            y += 24f;
+        }
+        Widgets.EndScrollView();
+    }
+
+    private static bool IsModVisible(ModContentPack mod, string searchTerm)
+    {
+        if (string.IsNullOrEmpty(searchTerm)) return true;
+        
+        var term = searchTerm.ToLowerInvariant();
+        return (mod.Name?.ToLowerInvariant().Contains(term) == true) ||
+               (mod.PackageId?.ToLowerInvariant().Contains(term) == true);
+    }
+
+    private static bool IsDefVisible(InteractionDef def, string searchTerm)
+    {
+        if (string.IsNullOrEmpty(searchTerm)) return true;
+        
+        var term = searchTerm.ToLowerInvariant();
+        return ((def.label ?? def.defName).ToLowerInvariant().Contains(term)) ||
+               ((def.defName ?? "").ToLowerInvariant().Contains(term)) ||
+               ((def.modContentPack?.Name ?? "").ToLowerInvariant().Contains(term));
+    }
+}
+
+[HarmonyPatch(typeof(Game), "FinalizeInit")]
+public static class Game_FinalizeInit_Patch
+{
+    static void Postfix()
+    {
+        if (Current.Game != null && Current.Game.GetComponent<ChatOverlay_AutoSaveComponent>() == null)
+        {
+            Current.Game.components.Add(new ChatOverlay_AutoSaveComponent(Current.Game));
+        }
+    }
+}
+
+[HarmonyPatch(typeof(Root), "Shutdown")]
+public static class Root_Shutdown_Patch
+{
+    static void Prefix()
+    {
+        ChatOverlay_Boot.TrySaveOverlayRect(ChatOverlayRenderer.GetCurrentRect(), force: true);
     }
 }

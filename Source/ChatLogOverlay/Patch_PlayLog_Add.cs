@@ -5,93 +5,70 @@ using System.Collections.Generic;
 using System.Reflection;
 using System.Linq;
 using RimWorld;
+using System.Collections.ObjectModel;
 
-public class ChatOverlayWindow : Window
+public static class ChatOverlayRenderer
 {
-    private Vector2 scroll;
+    private static Vector2 scroll;
+    private static Rect overlayRect = new Rect(50f, 50f, 820f, 360f);
+    private static bool isDragging = false;
+    private static bool isResizing = false;
+    private static Vector2 dragOffset;
+    private static Vector2 resizeStartSize;
+    private static Vector2 resizeStartPos;
+    private static bool isVisible = true;
 
-    // 自動追従のための前回情報
-    private float lastContentHeight;
-    private float lastViewHeight;
-    private int lastRevision = -1;
+    // 高さキャッシュ関連の変数を追加
+    private static readonly Dictionary<(string text, float width), float> heightCache = 
+        new Dictionary<(string, float), float>();
+    private static float lastTextWidth = -1f;
+    private static int lastCachedRevision = -1;
+    private static float[] cachedLineHeights;
+    private static float cachedContentHeight;
+
+    private static float lastContentHeight;
+    private static float lastViewHeight;
+    private static int lastRevision = -1;
     private const float BottomThreshold = 6f;
 
-    public ChatOverlayWindow()
+    static ChatOverlayRenderer()
     {
-        doWindowBackground = false;
-        absorbInputAroundWindow = false;
-        draggable = true;
-        forcePause = false;
-        preventCameraMotion = false;
-        resizeable = true;
-        closeOnClickedOutside = false;
-
-        // ここを変更（上位表示をやめて下位レイヤーへ）
-        layer = WindowLayer.GameUI; // 旧: WindowLayer.SubSuper など
-
-        // Esc/Enterで閉じない
-        closeOnCancel = false;
-        closeOnAccept = false;
+        LoadSettings();
     }
 
-    // 現在のウィンドウ矩形を外部から安全に参照するための公開プロパティ
-    public Rect CurrentRect => windowRect;
-
-    // 初期サイズは保存値があればそれを使う
-    public override Vector2 InitialSize
+    private static void LoadSettings()
     {
-        get
+        var s = ChatOverlayMod.Settings;
+        if (s?.HasValidOverlayRect == true)
         {
-            var s = ChatOverlayMod.Settings;
-            float w = (s != null && s.OverlayW > 0f) ? s.OverlayW : 820f;
-            float h = (s != null && s.OverlayH > 0f) ? s.OverlayH : 360f;
-            return new Vector2(w, h);
+            overlayRect = new Rect(s.OverlayX, s.OverlayY, s.OverlayW, s.OverlayH);
         }
     }
 
-    public override void PreOpen()
+    private static void SaveSettings()
     {
-        base.PreOpen();
-
-        var s = ChatOverlayMod.Settings;
-        if (s == null) return;
-
-        // サイズ復元
-        if (s.OverlayW > 0f && s.OverlayH > 0f)
-            windowRect.size = new Vector2(s.OverlayW, s.OverlayH);
-
-        // 位置復元（画面内にクランプ）
-        float maxX = UI.screenWidth  - windowRect.width;
-        float maxY = UI.screenHeight - windowRect.height;
-        if (s.OverlayX >= 0f) windowRect.x = Mathf.Clamp(s.OverlayX, 0f, Mathf.Max(0f, maxX));
-        if (s.OverlayY >= 0f) windowRect.y = Mathf.Clamp(s.OverlayY, 0f, Mathf.Max(0f, maxY));
+        ChatOverlay_Boot.TrySaveOverlayRect(overlayRect, force: false);
     }
 
-    public override void PostClose()
-    {
-        base.PostClose();
-
-        var s = ChatOverlayMod.Settings;
-        if (s == null) return;
-
-        // 現在の位置/サイズを保存
-        s.OverlayX = windowRect.x;
-        s.OverlayY = windowRect.y;
-        s.OverlayW = windowRect.width;
-        s.OverlayH = windowRect.height;
-        s.Write();
+    public static Rect GetCurrentRect() => overlayRect;
+    
+    public static bool IsVisible 
+    { 
+        get => isVisible; 
+        set => isVisible = value; 
     }
 
-    // Esc / Enter 無効化
-    public override void OnCancelKeyPressed() { }
-    public override void OnAcceptKeyPressed() { }
-
-    public override void DoWindowContents(Rect inRect)
+    public static void DrawOverlay()
     {
-        // 背景
-        Widgets.DrawBoxSolid(inRect, new Color(0f, 0f, 0f, 0.35f));
-        var view = inRect.ContractedBy(6f);
+        if (!isVisible) return;
 
+        HandleInput();
+
+        var settings = ChatOverlayMod.Settings;
+        float opacity = settings?.BackgroundOpacity ?? 0.35f;
+        Widgets.DrawBoxSolid(overlayRect, new Color(0f, 0f, 0f, opacity));
+        
+        var view = overlayRect.ContractedBy(6f);
         var lines = ChatState.Lines;
         int revision = ChatState.Revision;
 
@@ -107,25 +84,29 @@ public class ChatOverlayWindow : Window
 
         float textWidth = view.width - 16f;
         
-        // 高さをキャッシュして再利用
-        float[] lineHeights = new float[lines.Length];
-        float contentHeight = 0f;
-        for (int i = 0; i < lines.Length; i++)
+        // 高さキャッシュの更新判定
+        bool needsHeightRecalc = revision != lastCachedRevision || 
+                                Mathf.Abs(textWidth - lastTextWidth) > 0.1f ||
+                                cachedLineHeights == null ||
+                                cachedLineHeights.Length != lines.Count;
+
+        if (needsHeightRecalc)
         {
-            lineHeights[i] = Text.CalcHeight(lines[i], textWidth);
-            contentHeight += lineHeights[i];
+            UpdateHeightCache(lines, textWidth);
+            lastCachedRevision = revision;
+            lastTextWidth = textWidth;
         }
 
         if (revision != lastRevision && wasAtBottom)
         {
-            scroll.y = Mathf.Max(0f, contentHeight - view.height);
+            scroll.y = Mathf.Max(0f, cachedContentHeight - view.height);
         }
 
-        Widgets.BeginScrollView(view, ref scroll, new Rect(0, 0, textWidth, Mathf.Max(contentHeight, view.height)));
+        Widgets.BeginScrollView(view, ref scroll, new Rect(0, 0, textWidth, Mathf.Max(cachedContentHeight, view.height)));
         float y = 0f;
-        for (int i = 0; i < lines.Length; i++)
+        for (int i = 0; i < lines.Count; i++)
         {
-            float h = lineHeights[i]; // キャッシュされた値を使用
+            float h = cachedLineHeights[i];
             Widgets.Label(new Rect(0, y, textWidth, h), lines[i]);
             y += h;
         }
@@ -136,31 +117,128 @@ public class ChatOverlayWindow : Window
         Text.WordWrap = prevWrap;
 
         lastRevision = revision;
-        lastContentHeight = contentHeight;
+        lastContentHeight = cachedContentHeight;
         lastViewHeight = view.height;
 
-        scroll.y = Mathf.Clamp(scroll.y, 0f, Mathf.Max(0f, contentHeight - view.height));
+        scroll.y = Mathf.Clamp(scroll.y, 0f, Mathf.Max(0f, cachedContentHeight - view.height));
+
+        DrawResizeHandle();
+    }
+
+    private static void UpdateHeightCache(ReadOnlyCollection<string> lines, float textWidth)
+    {
+        // 古いキャッシュエントリをクリア（メモリリーク防止）
+        if (heightCache.Count > 1000)
+        {
+            heightCache.Clear();
+        }
+
+        cachedLineHeights = new float[lines.Count];
+        cachedContentHeight = 0f;
+
+        for (int i = 0; i < lines.Count; i++)
+        {
+            var key = (lines[i], textWidth);
+            if (!heightCache.TryGetValue(key, out float height))
+            {
+                height = Text.CalcHeight(lines[i], textWidth);
+                heightCache[key] = height;
+            }
+            cachedLineHeights[i] = height;
+            cachedContentHeight += height;
+        }
+    }
+
+    private static bool HandleInput()
+    {
+        Event current = Event.current;
+        Vector2 mousePos = current.mousePosition;
+
+        if (current.type == EventType.MouseDown && current.button == 0)
+        {
+            Rect resizeHandle = new Rect(overlayRect.xMax - 20f, overlayRect.yMax - 20f, 20f, 20f);
+            if (resizeHandle.Contains(mousePos))
+            {
+                isResizing = true;
+                resizeStartSize = overlayRect.size;
+                resizeStartPos = mousePos;
+                current.Use();
+                return true;
+            }
+
+            Rect titleBar = new Rect(overlayRect.x, overlayRect.y, overlayRect.width, 25f);
+            if (titleBar.Contains(mousePos))
+            {
+                isDragging = true;
+                dragOffset = mousePos - new Vector2(overlayRect.x, overlayRect.y);
+                current.Use();
+                return true;
+            }
+
+            return false;
+        }
+        else if (current.type == EventType.MouseUp && current.button == 0)
+        {
+            if (isDragging || isResizing)
+            {
+                SaveSettings();
+                isDragging = false;
+                isResizing = false;
+                return true;
+            }
+        }
+        else if (current.type == EventType.MouseDrag && current.button == 0)
+        {
+            if (isResizing)
+            {
+                Vector2 delta = mousePos - resizeStartPos;
+                overlayRect.width = Mathf.Max(200f, resizeStartSize.x + delta.x);
+                overlayRect.height = Mathf.Max(100f, resizeStartSize.y + delta.y);
+                current.Use();
+                return true;
+            }
+            else if (isDragging)
+            {
+                overlayRect.position = mousePos - dragOffset;
+                overlayRect.x = Mathf.Clamp(overlayRect.x, 0f, UI.screenWidth - overlayRect.width);
+                overlayRect.y = Mathf.Clamp(overlayRect.y, 0f, UI.screenHeight - overlayRect.height);
+                current.Use();
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static void DrawResizeHandle()
+    {
+        Rect resizeHandle = new Rect(overlayRect.xMax - 20f, overlayRect.yMax - 20f, 20f, 20f);
+        Widgets.DrawBoxSolid(resizeHandle, new Color(0.5f, 0.5f, 0.5f, 0.5f));
+        
+        Rect titleBar = new Rect(overlayRect.x, overlayRect.y, overlayRect.width, 25f);
+        Widgets.DrawBoxSolid(titleBar, new Color(0.2f, 0.2f, 0.2f, 0.3f));
     }
 }
 
-//===================== フィルタ適用 =====================
+[HarmonyPatch(typeof(MapInterface), "MapInterfaceOnGUI_AfterMainTabs")]
+public static class MapInterface_OnGUI_Patch
+{
+    static void Prefix()
+    {
+        ChatOverlayRenderer.DrawOverlay();
+    }
+}
 
 [HarmonyPatch(typeof(PlayLog), nameof(PlayLog.Add))]
 public static class Patch_PlayLog_Add
 {
     private static readonly FieldInfo F_Initiator = AccessTools.Field(typeof(PlayLogEntry_Interaction), "initiator");
-    private static readonly FieldInfo F_Recipient  = AccessTools.Field(typeof(PlayLogEntry_Interaction), "recipient");
+    private static readonly FieldInfo F_Recipient = AccessTools.Field(typeof(PlayLogEntry_Interaction), "recipient");
 
     static void Postfix(LogEntry entry)
     {
-        // 早期リターンを最適化
-        if (entry == null || !(entry is PlayLogEntry_Interaction inter))
+        if (!(entry is PlayLogEntry_Interaction inter) || !ChatOverlayFilter.ShouldInclude(entry))
             return;
-        
-        if (!ChatOverlayFilter.ShouldInclude(entry))
-            return;
-
-        ChatOverlay_Boot.EnsureOverlayExists();
 
         string text = FormatInteraction(inter);
         if (!string.IsNullOrEmpty(text))
@@ -196,7 +274,6 @@ public static class Patch_PlayLog_Add
     }
 }
 
-// Mod アセンブリ → packageId 対応表（packageId が取れない場合の補完）
 static class ModAssemblyIndex
 {
     private static readonly Dictionary<string, string> asmToPkg = new Dictionary<string, string>(System.StringComparer.OrdinalIgnoreCase);
@@ -205,8 +282,8 @@ static class ModAssemblyIndex
     public static string ResolvePackageIdFromAssembly(string assemblyName)
     {
         if (!built) Build();
-        if (string.IsNullOrEmpty(assemblyName)) return null;
-        return asmToPkg.TryGetValue(assemblyName, out var pkg) ? pkg : null;
+        return string.IsNullOrEmpty(assemblyName) ? null : 
+               asmToPkg.TryGetValue(assemblyName, out var pkg) ? pkg : null;
     }
 
     private static void Build()
@@ -219,12 +296,8 @@ static class ModAssemblyIndex
                 var handler = m.assemblies;
                 if (handler == null) continue;
 
-                // リフレクションを最適化
                 var fi = AccessTools.Field(handler.GetType(), "loadedAssemblies");
-                if (fi == null) continue;
-                
-                var list = fi.GetValue(handler) as System.Collections.IEnumerable;
-                if (list == null) continue;
+                if (!(fi?.GetValue(handler) is System.Collections.IEnumerable list)) continue;
 
                 foreach (var obj in list)
                 {
@@ -241,10 +314,11 @@ static class ModAssemblyIndex
     }
 }
 
-// フィルタ本体（設定連動 + packageId補完）
 static class ChatOverlayFilter
 {
-    private static FieldInfo _fInteractionDef; // "interaction" or "interactionDef" or "def"
+    private static FieldInfo _fInteractionDef;
+    private static readonly Dictionary<System.Type, FieldInfo[]> fieldCache = 
+        new Dictionary<System.Type, FieldInfo[]>();
 
     public static bool ShouldInclude(LogEntry entry)
     {
@@ -263,19 +337,19 @@ static class ChatOverlayFilter
             defName = def?.defName;
             packageId = def?.modContentPack?.PackageId;
 
-            // 代替手段: リフレクションで直接フィールドを探索
             if (def == null)
             {
-                var fields = typeof(PlayLogEntry_Interaction).GetFields(BindingFlags.NonPublic | BindingFlags.Instance);
+                var entryType = typeof(PlayLogEntry_Interaction);
+                if (!fieldCache.TryGetValue(entryType, out var fields))
+                {
+                    fields = entryType.GetFields(BindingFlags.NonPublic | BindingFlags.Instance);
+                    fieldCache[entryType] = fields;
+                }
                 
-                // すべてのフィールドをチェック
                 foreach (var field in fields)
                 {
-                    var value = field.GetValue(inter);
-                    
-                    if (value is InteractionDef interDef)
+                    if (field.GetValue(inter) is InteractionDef interDef)
                     {
-                        def = interDef;
                         defName = interDef.defName;
                         packageId = interDef.modContentPack?.PackageId;
                         break;
@@ -284,21 +358,36 @@ static class ChatOverlayFilter
             }
         }
 
-        // packageId が取れない場合はアセンブリ名から推定
         string effectivePkg = !string.IsNullOrEmpty(packageId)
             ? packageId
             : ModAssemblyIndex.ResolvePackageIdFromAssembly(asmName);
 
         if (settings.Mode == ChatOverlayFilterMode.Whitelist)
         {
-            bool hit =
-                (!string.IsNullOrEmpty(effectivePkg) && settings.PackageIdSet.Contains(effectivePkg)) ||
-                (!string.IsNullOrEmpty(defName) && settings.DefNameSet.Contains(defName));
+            bool packageMatches = !string.IsNullOrEmpty(effectivePkg) && settings.PackageIdSet.Contains(effectivePkg);
+            bool defMatches = !string.IsNullOrEmpty(defName) && settings.DefNameSet.Contains(defName);
             
-            return hit;
+            bool hasPackageFilter = settings.PackageIdSet.Count > 0;
+            bool hasDefFilter = settings.DefNameSet.Count > 0;
+            
+            if (hasPackageFilter && hasDefFilter)
+            {
+                return packageMatches && defMatches;
+            }
+            else if (hasPackageFilter)
+            {
+                return packageMatches;
+            }
+            else if (hasDefFilter)
+            {
+                return defMatches;
+            }
+            else
+            {
+                return true;
+            }
         }
 
-        // 将来: Blacklist
         if (settings.Mode == ChatOverlayFilterMode.Blacklist)
         {
             bool blocked =
@@ -329,9 +418,12 @@ static class ChatState
 {
     private static readonly Queue<string> buf = new Queue<string>(256);
     private static readonly object lockObject = new object();
+    private static ReadOnlyCollection<string> cachedLines;
+    private static bool linesCacheDirty = true;
 
     private static string lastText;
     private static int lastTick;
+    private static int lastHashCode;
     private static int revision;
 
     private const int DuplicateToleranceTicks = 60;
@@ -339,10 +431,12 @@ static class ChatState
     public static void Push(string s)
     {
         int now = Find.TickManager?.TicksGame ?? 0;
+        int hashCode = s?.GetHashCode() ?? 0;
 
         lock (lockObject)
         {
-            if (lastText != null && s == lastText && (now - lastTick) <= DuplicateToleranceTicks)
+            // ハッシュコード比較を先に行い、一致した場合のみ文字列比較
+            if (lastHashCode == hashCode && lastText != null && s == lastText && (now - lastTick) <= DuplicateToleranceTicks)
                 return;
 
             if (buf.Count > 200) buf.Dequeue();
@@ -350,7 +444,9 @@ static class ChatState
 
             lastText = s;
             lastTick = now;
+            lastHashCode = hashCode;
             revision++;
+            linesCacheDirty = true;
         }
     }
 
@@ -361,17 +457,24 @@ static class ChatState
             buf.Clear();
             lastText = null;
             lastTick = 0;
-            revision++; // 変更通知
+            lastHashCode = 0;
+            revision++;
+            linesCacheDirty = true;
         }
     }
 
-    public static string[] Lines
+    public static ReadOnlyCollection<string> Lines
     {
         get
         {
             lock (lockObject)
             {
-                return buf.ToArray();
+                if (linesCacheDirty)
+                {
+                    cachedLines = new ReadOnlyCollection<string>(buf.ToArray());
+                    linesCacheDirty = false;
+                }
+                return cachedLines;
             }
         }
     }

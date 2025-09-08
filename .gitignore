@@ -1,1 +1,24 @@
-.vs/
+# ---- Visual Studio IDE ----
+Source/ChatLogOverlay/.vs/
+Source/ChatLogOverlay/*.user
+Source/ChatLogOverlay/*.suo
+Source/ChatLogOverlay/*.userosscache
+Source/ChatLogOverlay/*.sln.docstates
+
+# ---- Build outputs ----
+Source/ChatLogOverlay/[Bb]in/
+Source/ChatLogOverlay/[Oo]bj/
+Source/ChatLogOverlay/[Ll]og/
+Source/ChatLogOverlay/[Tt]emp/
+Source/ChatLogOverlay/*.pdb
+
+# ---- RimWorld specific ----
+Source/ChatLogOverlay/Assemblies/0Harmony.dll
+
+# ---- OS / Tooling ----
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# ---- Git merge leftovers ----
+*.orig
