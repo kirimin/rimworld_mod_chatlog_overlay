@@ -18,7 +18,6 @@ public static class ChatOverlayRenderer
     private static Vector2 resizeStartPos;
     private static bool isVisible = true;
 
-    // 高さキャッシュ関連の変数を追加
     private static readonly Dictionary<(string text, float width, GameFont font), float> heightCache = 
         new Dictionary<(string, float, GameFont), float>();
     private static float lastTextWidth = -1f;
@@ -27,10 +26,14 @@ public static class ChatOverlayRenderer
     private static float[] cachedLineHeights;
     private static float cachedContentHeight;
 
+    private static ChatOverlaySettings cachedSettings;
+    private static int settingsUpdateCount = -1;
+
     private static float lastContentHeight;
     private static float lastViewHeight;
     private static int lastRevision = -1;
     private const float BottomThreshold = 6f;
+    private const int MaxCacheSize = 500;
 
     static ChatOverlayRenderer()
     {
@@ -44,6 +47,32 @@ public static class ChatOverlayRenderer
         {
             overlayRect = new Rect(s.OverlayX, s.OverlayY, s.OverlayW, s.OverlayH);
         }
+        RefreshSettingsCache();
+    }
+
+    private static void RefreshSettingsCache()
+    {
+        var settings = ChatOverlayMod.Settings;
+        if (settings != null)
+        {
+            cachedSettings = settings;
+            settingsUpdateCount = settings.GetHashCode(); // 簡易的な変更検知
+        }
+    }
+
+    private static ChatOverlaySettings GetCachedSettings()
+    {
+        var settings = ChatOverlayMod.Settings;
+        if (settings == null) return null;
+        
+        int currentHash = settings.GetHashCode();
+        if (cachedSettings == null || settingsUpdateCount != currentHash)
+        {
+            cachedSettings = settings;
+            settingsUpdateCount = currentHash;
+        }
+        
+        return cachedSettings;
     }
 
     private static void SaveSettings()
@@ -59,7 +88,6 @@ public static class ChatOverlayRenderer
         set => isVisible = value; 
     }
 
-    // 高さキャッシュをクリアする公開メソッド
     public static void ClearHeightCache()
     {
         heightCache.Clear();
@@ -73,7 +101,7 @@ public static class ChatOverlayRenderer
 
         HandleInput();
 
-        var settings = ChatOverlayMod.Settings;
+        var settings = GetCachedSettings();
         float opacity = settings?.BackgroundOpacity ?? 0.35f;
         Widgets.DrawBoxSolid(overlayRect, new Color(0f, 0f, 0f, opacity));
         
@@ -88,7 +116,6 @@ public static class ChatOverlayRenderer
         var prevWrap = Text.WordWrap;
         var prevColor = GUI.color;
 
-        // 設定からフォントと色を適用
         GameFont currentFont = settings?.GetGameFont() ?? GameFont.Small;
         Color textColor = settings?.TextColor ?? Color.white;
         
@@ -99,7 +126,6 @@ public static class ChatOverlayRenderer
 
         float textWidth = view.width - 16f;
         
-        // 高さキャッシュの更新判定（フォントサイズも考慮）
         bool needsHeightRecalc = revision != lastCachedRevision || 
                                 Mathf.Abs(textWidth - lastTextWidth) > 0.1f ||
                                 currentFont != lastCachedFont ||
@@ -145,10 +171,15 @@ public static class ChatOverlayRenderer
 
     private static void UpdateHeightCache(ReadOnlyCollection<string> lines, float textWidth, GameFont font)
     {
-        // 古いキャッシュエントリをクリア（メモリリーク防止）
-        if (heightCache.Count > 1000)
+        // メモリリーク対策：より積極的なクリア
+        if (heightCache.Count > MaxCacheSize)
         {
-            heightCache.Clear();
+            // 古いエントリを削除（LRU的な実装）
+            var keysToRemove = heightCache.Keys.Take(heightCache.Count - MaxCacheSize / 2).ToList();
+            foreach (var key in keysToRemove)
+            {
+                heightCache.Remove(key);
+            }
         }
 
         cachedLineHeights = new float[lines.Count];
@@ -238,7 +269,6 @@ public static class ChatOverlayRenderer
     }
 }
 
-// 標準レイヤー（MainTabsの後）
 [HarmonyPatch(typeof(MapInterface), "MapInterfaceOnGUI_AfterMainTabs")]
 public static class MapInterface_OnGUI_AfterMainTabs_Patch
 {
@@ -252,7 +282,6 @@ public static class MapInterface_OnGUI_AfterMainTabs_Patch
     }
 }
 
-// 背景レイヤー（コマンドボタンなどより後ろ）
 [HarmonyPatch(typeof(MapInterface), "MapInterfaceOnGUI_BeforeMainTabs")]
 public static class MapInterface_OnGUI_BeforeMainTabs_Patch
 {
@@ -377,32 +406,32 @@ static class ModAssemblyIndex
                 }
             }
         }
-        catch { /* fail-safe */ }
+        catch { }
     }
 }
 
-// ChatOverlayFilterクラスのShouldIncludeメソッドを修正
 static class ChatOverlayFilter
 {
     private static FieldInfo _fInteractionDef;
+    private static readonly FieldInfo F_Initiator = AccessTools.Field(typeof(PlayLogEntry_Interaction), "initiator");
+    private static readonly FieldInfo F_Recipient = AccessTools.Field(typeof(PlayLogEntry_Interaction), "recipient");
     private static readonly Dictionary<System.Type, FieldInfo[]> fieldCache = 
         new Dictionary<System.Type, FieldInfo[]>();
 
     public static bool ShouldInclude(LogEntry entry)
     {
-        var settings = ChatOverlayMod.Settings ?? new ChatOverlaySettings();
+        var settings = ChatOverlayMod.Settings;
+        if (settings == null) return true;
 
         if (settings.Mode == ChatOverlayFilterMode.Off && !settings.EnableSpeakerFilter)
             return true;
 
-        // 発言者フィルターのチェック
         if (settings.EnableSpeakerFilter && entry is PlayLogEntry_Interaction inter)
         {
             if (!IsSpeakerAllowed(inter, settings))
                 return false;
         }
 
-        // 既存のMOD/Defフィルター
         if (settings.Mode == ChatOverlayFilterMode.Off)
             return true;
 
@@ -483,9 +512,6 @@ static class ChatOverlayFilter
         if (!settings.EnableSpeakerFilter || settings.SpeakerNameSet.Count == 0)
             return true;
 
-        var F_Initiator = AccessTools.Field(typeof(PlayLogEntry_Interaction), "initiator");
-        var F_Recipient = AccessTools.Field(typeof(PlayLogEntry_Interaction), "recipient");
-        
         var initiator = F_Initiator?.GetValue(inter) as Thing;
         var recipient = F_Recipient?.GetValue(inter) as Thing;
 
@@ -496,7 +522,6 @@ static class ChatOverlayFilter
             return settings.SpeakerNameSet.Contains(subjectPawn.LabelShortCap);
         }
         
-        // フォールバック: initiatorまたはrecipientがPawnの場合
         if (initiator is Pawn ip && ip.LabelShortCap != null)
         {
             return settings.SpeakerNameSet.Contains(ip.LabelShortCap);
@@ -507,7 +532,6 @@ static class ChatOverlayFilter
             return settings.SpeakerNameSet.Contains(rp.LabelShortCap);
         }
 
-        // 発言者が特定できない場合は通す
         return true;
     }
 
@@ -547,7 +571,6 @@ static class ChatState
 
         lock (lockObject)
         {
-            // ハッシュコード比較を先に行い、一致した場合のみ文字列比較
             if (lastHashCode == hashCode && lastText != null && s == lastText && (now - lastTick) <= DuplicateToleranceTicks)
                 return;
 

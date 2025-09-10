@@ -11,24 +11,24 @@ public enum ChatOverlayFilterMode
 
 public enum ChatOverlayDisplayLayer
 {
-    Standard,   // 現在の位置（MainTabsの後）
-    Background  // より下位レイヤー（コマンドボタンなどの後ろ）
+    Standard,
+    Background
 }
 
 public enum SpeakerNameFormat
 {
-    Japanese,    // 【Name】
-    Square,      // [Name]
-    Parentheses, // (Name)
-    Angle,       // <Name>
-    Colon        // Name:
+    Japanese,
+    Square,
+    Parentheses,
+    Angle,
+    Colon
 }
 
 public enum ChatFontSize
 {
-    Tiny,    // GameFont.Tiny
-    Small,   // GameFont.Small
-    Medium   // GameFont.Medium
+    Tiny,
+    Small,
+    Medium
 }
 
 public class ChatOverlaySettings : ModSettings
@@ -36,7 +36,7 @@ public class ChatOverlaySettings : ModSettings
     public ChatOverlayFilterMode Mode = ChatOverlayFilterMode.Off;
     public HashSet<string> PackageIdSet = new HashSet<string>(System.StringComparer.OrdinalIgnoreCase);
     public HashSet<string> DefNameSet = new HashSet<string>(System.StringComparer.OrdinalIgnoreCase);
-    public HashSet<string> SpeakerNameSet = new HashSet<string>(System.StringComparer.OrdinalIgnoreCase); // 発言者フィルター
+    public HashSet<string> SpeakerNameSet = new HashSet<string>(System.StringComparer.OrdinalIgnoreCase);
 
     public float OverlayX = -1f;
     public float OverlayY = -1f;
@@ -44,20 +44,19 @@ public class ChatOverlaySettings : ModSettings
     public float OverlayH = -1f;
     public float BackgroundOpacity = 0.35f;
     public ChatOverlayDisplayLayer DisplayLayer = ChatOverlayDisplayLayer.Standard;
-    public bool ShowSpeakerName = true; // 発言者名の表示設定
-    public SpeakerNameFormat NameFormat = SpeakerNameFormat.Japanese; // 発言者名の形式
-    public bool EnableSpeakerFilter = false; // 発言者フィルターの有効/無効
+    public bool ShowSpeakerName = true;
+    public SpeakerNameFormat NameFormat = SpeakerNameFormat.Japanese;
+    public bool EnableSpeakerFilter = false;
     
-    // 新しい設定項目
-    public ChatFontSize FontSize = ChatFontSize.Small; // フォントサイズ
-    public float TextColorR = 1.0f; // 文字色（赤）
-    public float TextColorG = 1.0f; // 文字色（緑）
-    public float TextColorB = 1.0f; // 文字色（青）
-    public float TextColorA = 1.0f; // 文字色（透明度）
+    public ChatFontSize FontSize = ChatFontSize.Small;
+    public float TextColorR = 1.0f;
+    public float TextColorG = 1.0f;
+    public float TextColorB = 1.0f;
+    public float TextColorA = 1.0f;
 
     private List<string> _pkgTmp;
     private List<string> _defTmp;
-    private List<string> _speakerTmp; // 発言者フィルター用
+    private List<string> _speakerTmp;
 
     public bool HasValidOverlayRect => OverlayX >= 0f && OverlayY >= 0f && OverlayW > 0f && OverlayH > 0f;
     
@@ -85,6 +84,26 @@ public class ChatOverlaySettings : ModSettings
                 return GameFont.Medium;
             default:
                 return GameFont.Small;
+        }
+    }
+
+    public override int GetHashCode()
+    {
+        unchecked
+        {
+            int hash = 17;
+            hash = hash * 31 + Mode.GetHashCode();
+            hash = hash * 31 + BackgroundOpacity.GetHashCode();
+            hash = hash * 31 + DisplayLayer.GetHashCode();
+            hash = hash * 31 + ShowSpeakerName.GetHashCode();
+            hash = hash * 31 + NameFormat.GetHashCode();
+            hash = hash * 31 + EnableSpeakerFilter.GetHashCode();
+            hash = hash * 31 + FontSize.GetHashCode();
+            hash = hash * 31 + TextColorR.GetHashCode();
+            hash = hash * 31 + TextColorG.GetHashCode();
+            hash = hash * 31 + TextColorB.GetHashCode();
+            hash = hash * 31 + TextColorA.GetHashCode();
+            return hash;
         }
     }
 
