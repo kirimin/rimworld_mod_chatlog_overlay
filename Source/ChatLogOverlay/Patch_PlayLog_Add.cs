@@ -18,18 +18,22 @@ public static class ChatOverlayRenderer
     private static Vector2 resizeStartPos;
     private static bool isVisible = true;
 
-    // 高さキャッシュ関連の変数を追加
-    private static readonly Dictionary<(string text, float width), float> heightCache = 
-        new Dictionary<(string, float), float>();
+    private static readonly Dictionary<(string text, float width, GameFont font), float> heightCache = 
+        new Dictionary<(string, float, GameFont), float>();
     private static float lastTextWidth = -1f;
     private static int lastCachedRevision = -1;
+    private static GameFont lastCachedFont = GameFont.Small;
     private static float[] cachedLineHeights;
     private static float cachedContentHeight;
+
+    private static ChatOverlaySettings cachedSettings;
+    private static int settingsUpdateCount = -1;
 
     private static float lastContentHeight;
     private static float lastViewHeight;
     private static int lastRevision = -1;
     private const float BottomThreshold = 6f;
+    private const int MaxCacheSize = 500;
 
     static ChatOverlayRenderer()
     {
@@ -43,6 +47,32 @@ public static class ChatOverlayRenderer
         {
             overlayRect = new Rect(s.OverlayX, s.OverlayY, s.OverlayW, s.OverlayH);
         }
+        RefreshSettingsCache();
+    }
+
+    private static void RefreshSettingsCache()
+    {
+        var settings = ChatOverlayMod.Settings;
+        if (settings != null)
+        {
+            cachedSettings = settings;
+            settingsUpdateCount = settings.GetHashCode(); // 簡易的な変更検知
+        }
+    }
+
+    private static ChatOverlaySettings GetCachedSettings()
+    {
+        var settings = ChatOverlayMod.Settings;
+        if (settings == null) return null;
+        
+        int currentHash = settings.GetHashCode();
+        if (cachedSettings == null || settingsUpdateCount != currentHash)
+        {
+            cachedSettings = settings;
+            settingsUpdateCount = currentHash;
+        }
+        
+        return cachedSettings;
     }
 
     private static void SaveSettings()
@@ -58,13 +88,20 @@ public static class ChatOverlayRenderer
         set => isVisible = value; 
     }
 
+    public static void ClearHeightCache()
+    {
+        heightCache.Clear();
+        lastCachedRevision = -1;
+        cachedLineHeights = null;
+    }
+
     public static void DrawOverlay()
     {
         if (!isVisible) return;
 
         HandleInput();
 
-        var settings = ChatOverlayMod.Settings;
+        var settings = GetCachedSettings();
         float opacity = settings?.BackgroundOpacity ?? 0.35f;
         Widgets.DrawBoxSolid(overlayRect, new Color(0f, 0f, 0f, opacity));
         
@@ -77,24 +114,30 @@ public static class ChatOverlayRenderer
         var prevFont = Text.Font;
         var prevAnchor = Text.Anchor;
         var prevWrap = Text.WordWrap;
+        var prevColor = GUI.color;
 
-        Text.Font = GameFont.Small;
+        GameFont currentFont = settings?.GetGameFont() ?? GameFont.Small;
+        Color textColor = settings?.TextColor ?? Color.white;
+        
+        Text.Font = currentFont;
         Text.Anchor = TextAnchor.UpperLeft;
         Text.WordWrap = true;
+        GUI.color = textColor;
 
         float textWidth = view.width - 16f;
         
-        // 高さキャッシュの更新判定
         bool needsHeightRecalc = revision != lastCachedRevision || 
                                 Mathf.Abs(textWidth - lastTextWidth) > 0.1f ||
+                                currentFont != lastCachedFont ||
                                 cachedLineHeights == null ||
                                 cachedLineHeights.Length != lines.Count;
 
         if (needsHeightRecalc)
         {
-            UpdateHeightCache(lines, textWidth);
+            UpdateHeightCache(lines, textWidth, currentFont);
             lastCachedRevision = revision;
             lastTextWidth = textWidth;
+            lastCachedFont = currentFont;
         }
 
         if (revision != lastRevision && wasAtBottom)
@@ -115,6 +158,7 @@ public static class ChatOverlayRenderer
         Text.Font = prevFont;
         Text.Anchor = prevAnchor;
         Text.WordWrap = prevWrap;
+        GUI.color = prevColor;
 
         lastRevision = revision;
         lastContentHeight = cachedContentHeight;
@@ -125,12 +169,17 @@ public static class ChatOverlayRenderer
         DrawResizeHandle();
     }
 
-    private static void UpdateHeightCache(ReadOnlyCollection<string> lines, float textWidth)
+    private static void UpdateHeightCache(ReadOnlyCollection<string> lines, float textWidth, GameFont font)
     {
-        // 古いキャッシュエントリをクリア（メモリリーク防止）
-        if (heightCache.Count > 1000)
+        // メモリリーク対策：より積極的なクリア
+        if (heightCache.Count > MaxCacheSize)
         {
-            heightCache.Clear();
+            // 古いエントリを削除（LRU的な実装）
+            var keysToRemove = heightCache.Keys.Take(heightCache.Count - MaxCacheSize / 2).ToList();
+            foreach (var key in keysToRemove)
+            {
+                heightCache.Remove(key);
+            }
         }
 
         cachedLineHeights = new float[lines.Count];
@@ -138,7 +187,7 @@ public static class ChatOverlayRenderer
 
         for (int i = 0; i < lines.Count; i++)
         {
-            var key = (lines[i], textWidth);
+            var key = (lines[i], textWidth, font);
             if (!heightCache.TryGetValue(key, out float height))
             {
                 height = Text.CalcHeight(lines[i], textWidth);
@@ -221,11 +270,28 @@ public static class ChatOverlayRenderer
 }
 
 [HarmonyPatch(typeof(MapInterface), "MapInterfaceOnGUI_AfterMainTabs")]
-public static class MapInterface_OnGUI_Patch
+public static class MapInterface_OnGUI_AfterMainTabs_Patch
 {
     static void Prefix()
     {
-        ChatOverlayRenderer.DrawOverlay();
+        var settings = ChatOverlayMod.Settings;
+        if (settings?.DisplayLayer == ChatOverlayDisplayLayer.Standard)
+        {
+            ChatOverlayRenderer.DrawOverlay();
+        }
+    }
+}
+
+[HarmonyPatch(typeof(MapInterface), "MapInterfaceOnGUI_BeforeMainTabs")]
+public static class MapInterface_OnGUI_BeforeMainTabs_Patch
+{
+    static void Prefix()
+    {
+        var settings = ChatOverlayMod.Settings;
+        if (settings?.DisplayLayer == ChatOverlayDisplayLayer.Background)
+        {
+            ChatOverlayRenderer.DrawOverlay();
+        }
     }
 }
 
@@ -261,8 +327,38 @@ public static class Patch_PlayLog_Add
         if (string.IsNullOrEmpty(body))
             return null;
 
-        string name = GetSubjectName(subjectPawn, initiator, recipient);
-        return $"【{name}】{body}";
+        var settings = ChatOverlayMod.Settings;
+        bool showSpeakerName = settings?.ShowSpeakerName ?? true;
+
+        if (showSpeakerName)
+        {
+            string name = GetSubjectName(subjectPawn, initiator, recipient);
+            string formattedName = FormatSpeakerName(name, settings?.NameFormat ?? SpeakerNameFormat.Japanese);
+            return $"{formattedName}{body}";
+        }
+        else
+        {
+            return body;
+        }
+    }
+
+    private static string FormatSpeakerName(string name, SpeakerNameFormat format)
+    {
+        switch (format)
+        {
+            case SpeakerNameFormat.Japanese:
+                return $"【{name}】";
+            case SpeakerNameFormat.Square:
+                return $"[{name}] ";
+            case SpeakerNameFormat.Parentheses:
+                return $"({name}) ";
+            case SpeakerNameFormat.Angle:
+                return $"<{name}> ";
+            case SpeakerNameFormat.Colon:
+                return $"{name}: ";
+            default:
+                return $"【{name}】";
+        }
     }
 
     private static string GetSubjectName(Pawn subject, Thing initiator, Thing recipient)
@@ -310,19 +406,31 @@ static class ModAssemblyIndex
                 }
             }
         }
-        catch { /* fail-safe */ }
+        catch { }
     }
 }
 
 static class ChatOverlayFilter
 {
     private static FieldInfo _fInteractionDef;
+    private static readonly FieldInfo F_Initiator = AccessTools.Field(typeof(PlayLogEntry_Interaction), "initiator");
+    private static readonly FieldInfo F_Recipient = AccessTools.Field(typeof(PlayLogEntry_Interaction), "recipient");
     private static readonly Dictionary<System.Type, FieldInfo[]> fieldCache = 
         new Dictionary<System.Type, FieldInfo[]>();
 
     public static bool ShouldInclude(LogEntry entry)
     {
-        var settings = ChatOverlayMod.Settings ?? new ChatOverlaySettings();
+        var settings = ChatOverlayMod.Settings;
+        if (settings == null) return true;
+
+        if (settings.Mode == ChatOverlayFilterMode.Off && !settings.EnableSpeakerFilter)
+            return true;
+
+        if (settings.EnableSpeakerFilter && entry is PlayLogEntry_Interaction inter)
+        {
+            if (!IsSpeakerAllowed(inter, settings))
+                return false;
+        }
 
         if (settings.Mode == ChatOverlayFilterMode.Off)
             return true;
@@ -331,9 +439,9 @@ static class ChatOverlayFilter
         string packageId = null;
         string asmName = entry?.GetType()?.Assembly?.GetName()?.Name;
 
-        if (entry is PlayLogEntry_Interaction inter)
+        if (entry is PlayLogEntry_Interaction interaction)
         {
-            var def = GetInteractionDef(inter);
+            var def = GetInteractionDef(interaction);
             defName = def?.defName;
             packageId = def?.modContentPack?.PackageId;
 
@@ -348,7 +456,7 @@ static class ChatOverlayFilter
                 
                 foreach (var field in fields)
                 {
-                    if (field.GetValue(inter) is InteractionDef interDef)
+                    if (field.GetValue(interaction) is InteractionDef interDef)
                     {
                         defName = interDef.defName;
                         packageId = interDef.modContentPack?.PackageId;
@@ -399,6 +507,34 @@ static class ChatOverlayFilter
         return true;
     }
 
+    private static bool IsSpeakerAllowed(PlayLogEntry_Interaction inter, ChatOverlaySettings settings)
+    {
+        if (!settings.EnableSpeakerFilter || settings.SpeakerNameSet.Count == 0)
+            return true;
+
+        var initiator = F_Initiator?.GetValue(inter) as Thing;
+        var recipient = F_Recipient?.GetValue(inter) as Thing;
+
+        var subjectPawn = initiator as Pawn ?? recipient as Pawn;
+        
+        if (subjectPawn?.LabelShortCap != null)
+        {
+            return settings.SpeakerNameSet.Contains(subjectPawn.LabelShortCap);
+        }
+        
+        if (initiator is Pawn ip && ip.LabelShortCap != null)
+        {
+            return settings.SpeakerNameSet.Contains(ip.LabelShortCap);
+        }
+        
+        if (recipient is Pawn rp && rp.LabelShortCap != null)
+        {
+            return settings.SpeakerNameSet.Contains(rp.LabelShortCap);
+        }
+
+        return true;
+    }
+
     private static Def GetInteractionDef(PlayLogEntry_Interaction inter)
     {
         if (_fInteractionDef == null)
@@ -435,7 +571,6 @@ static class ChatState
 
         lock (lockObject)
         {
-            // ハッシュコード比較を先に行い、一致した場合のみ文字列比較
             if (lastHashCode == hashCode && lastText != null && s == lastText && (now - lastTick) <= DuplicateToleranceTicks)
                 return;
 

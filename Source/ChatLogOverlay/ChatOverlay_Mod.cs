@@ -12,15 +12,20 @@ public class ChatOverlayMod : Mod
 
     private Vector2 _scrollMods;
     private Vector2 _scrollDefs;
+    private Vector2 _scrollGeneral;
+    private Vector2 _scrollSpeakers;
     private string _searchMods = "";
     private string _searchDefs = "";
+    private string _searchSpeakers = "";
     
-    private enum SettingsTab { General, Filters, Advanced }
+    // Speakersタブを追加
+    private enum SettingsTab { General, Filters, Speakers, Advanced }
     private SettingsTab currentTab = SettingsTab.General;
 
     private static readonly (SettingsTab Tab, string Label)[] TabData = {
         (SettingsTab.General, "General"),
         (SettingsTab.Filters, "Filters"),
+        (SettingsTab.Speakers, "Speakers"),
         (SettingsTab.Advanced, "Advanced")
     };
 
@@ -49,12 +54,52 @@ public class ChatOverlayMod : Mod
             case SettingsTab.Filters:
                 DrawFiltersTab(listing, inRect);
                 break;
+            case SettingsTab.Speakers:
+                DrawSpeakersTab(listing, inRect);
+                break;
             case SettingsTab.Advanced:
                 DrawAdvancedTab(listing, inRect);
                 break;
         }
 
         listing.End();
+    }
+
+    // タイトル描画用のヘルパーメソッド
+    private void DrawSectionTitle(Listing_Standard listing, string title)
+    {
+        var prevFont = Text.Font;
+        var prevColor = GUI.color;
+        
+        Text.Font = GameFont.Medium;
+        GUI.color = new Color(0.9f, 0.9f, 0.6f, 1f);
+        
+        listing.Label(title);
+        
+        Text.Font = prevFont;
+        GUI.color = prevColor;
+        
+        listing.Gap(6f);
+    }
+
+    private void DrawSectionTitleWithUnderline(Listing_Standard listing, string title)
+    {
+        var prevFont = Text.Font;
+        var prevColor = GUI.color;
+        
+        Text.Font = GameFont.Small;
+        GUI.color = Color.white;
+        
+        var titleRect = listing.GetRect(Text.LineHeight);
+        Widgets.Label(titleRect, title);
+        
+        var underlineRect = new Rect(titleRect.x, titleRect.yMax - 1f, titleRect.width * 0.8f, 1f);
+        Widgets.DrawBoxSolid(underlineRect, new Color(0.7f, 0.7f, 0.7f, 0.8f));
+        
+        Text.Font = prevFont;
+        GUI.color = prevColor;
+        
+        listing.Gap(8f);
     }
 
     private void DrawTabButtons(Listing_Standard listing)
@@ -89,6 +134,25 @@ public class ChatOverlayMod : Mod
 
     private void DrawGeneralTab(Listing_Standard listing, Rect inRect)
     {
+        var availableHeight = inRect.height - listing.CurHeight - 10f;
+        var scrollRect = listing.GetRect(availableHeight);
+        
+        // 十分に大きな高さを確保（RimWorldの標準的な手法）
+        var viewRect = new Rect(0, 0, scrollRect.width - 16f, 1500f);
+        Widgets.BeginScrollView(scrollRect, ref _scrollGeneral, viewRect);
+        
+        var contentListing = new Listing_Standard();
+        contentListing.Begin(viewRect);
+        
+        DrawGeneralTabContent(contentListing);
+        
+        contentListing.End();
+        Widgets.EndScrollView();
+    }
+
+    private void DrawGeneralTabContent(Listing_Standard listing)
+    {
+        // コントロールボタン
         bool isVisible = ChatOverlayRenderer.IsVisible;
         string btnLabel = isVisible ? "Hide Overlay" : "Show Overlay";
         if (Widgets.ButtonText(listing.GetRect(30f), btnLabel))
@@ -102,13 +166,20 @@ public class ChatOverlayMod : Mod
         }
         listing.Gap();
 
+        // 設定項目（タイトルを強調）
         DrawOpacitySlider(listing);
+        DrawDisplayLayerSelection(listing);
+        DrawSpeakerNameOption(listing);
+        DrawFontSizeSelection(listing);
+        DrawTextColorPicker(listing);
         DrawUsageInstructions(listing);
     }
 
     private void DrawOpacitySlider(Listing_Standard listing)
     {
-        listing.Label($"Background Opacity: {Settings.BackgroundOpacity:F2} (0.0 = Transparent, 1.0 = Opaque)");
+        DrawSectionTitle(listing, "Background Opacity");
+        
+        listing.Label($"Current: {Settings.BackgroundOpacity:F2} (0.0 = Transparent, 1.0 = Opaque)");
         float newOpacity = listing.Slider(Settings.BackgroundOpacity, 0.0f, 1.0f);
         if (Math.Abs(newOpacity - Settings.BackgroundOpacity) > 0.001f)
         {
@@ -118,15 +189,164 @@ public class ChatOverlayMod : Mod
         listing.Gap();
     }
 
+    private void DrawDisplayLayerSelection(Listing_Standard listing)
+    {
+        DrawSectionTitle(listing, "Display Layer");
+        
+        var layers = new[]
+        {
+            (ChatOverlayDisplayLayer.Standard, "Standard"),
+            (ChatOverlayDisplayLayer.Background, "Background (behind all UI elements)")
+        };
+
+        foreach (var (layer, label) in layers)
+        {
+            if (listing.RadioButton(label, Settings.DisplayLayer == layer) && Settings.DisplayLayer != layer)
+            {
+                Settings.DisplayLayer = layer;
+                Settings.Write();
+            }
+        }
+        listing.Gap();
+    }
+
+    private void DrawSpeakerNameOption(Listing_Standard listing)
+    {
+        DrawSectionTitle(listing, "Speaker Name Settings");
+        
+        bool prevValue = Settings.ShowSpeakerName;
+        listing.CheckboxLabeled("Show speaker name", ref Settings.ShowSpeakerName);
+        if (prevValue != Settings.ShowSpeakerName)
+        {
+            Settings.Write();
+        }
+
+        if (Settings.ShowSpeakerName)
+        {
+            listing.Gap(4f);
+            
+            // サブタイトル用のインデント付きスタイル
+            var prevFont = Text.Font;
+            var prevColor = GUI.color;
+            Text.Font = GameFont.Tiny;
+            GUI.color = new Color(0.8f, 0.8f, 0.8f, 1f);
+            listing.Label("  Format:");
+            Text.Font = prevFont;
+            GUI.color = prevColor;
+            
+            var formats = new[]
+            {
+                (SpeakerNameFormat.Japanese, "    Japanese style (【Name】)"),
+                (SpeakerNameFormat.Square, "    Square brackets ([Name])"),
+                (SpeakerNameFormat.Parentheses, "    Parentheses ((Name))"),
+                (SpeakerNameFormat.Angle, "    Angle brackets (<Name>)"),
+                (SpeakerNameFormat.Colon, "    Colon (Name:)")
+            };
+
+            foreach (var (format, label) in formats)
+            {
+                if (listing.RadioButton(label, Settings.NameFormat == format) && Settings.NameFormat != format)
+                {
+                    Settings.NameFormat = format;
+                    Settings.Write();
+                }
+            }
+        }
+        
+        listing.Gap();
+    }
+
+    private void DrawFontSizeSelection(Listing_Standard listing)
+    {
+        DrawSectionTitle(listing, "Font Size");
+        
+        var fontSizes = new[]
+        {
+            (ChatFontSize.Tiny, "Tiny"),
+            (ChatFontSize.Small, "Small"),
+            (ChatFontSize.Medium, "Medium")
+        };
+
+        foreach (var (fontSize, label) in fontSizes)
+        {
+            if (listing.RadioButton(label, Settings.FontSize == fontSize) && Settings.FontSize != fontSize)
+            {
+                Settings.FontSize = fontSize;
+                Settings.Write();
+                
+                // フォントサイズ変更時に高さキャッシュをクリア
+                ChatOverlayRenderer.ClearHeightCache();
+            }
+        }
+        listing.Gap();
+    }
+
+    private void DrawTextColorPicker(Listing_Standard listing)
+    {
+        DrawSectionTitle(listing, "Text Color");
+        
+        // 色プレビュー
+        var colorPreviewRect = listing.GetRect(30f);
+        var previewRect = new Rect(colorPreviewRect.x, colorPreviewRect.y, 100f, 30f);
+        Widgets.DrawBoxSolid(previewRect, Settings.TextColor);
+        Widgets.DrawBox(previewRect);
+        
+        // プリセット色ボタン
+        var buttonRect = new Rect(previewRect.xMax + 10f, previewRect.y, colorPreviewRect.width - previewRect.width - 10f, 30f);
+        float buttonWidth = (buttonRect.width - 30f) / 4f;
+        
+        var presetColors = new[]
+        {
+            ("White", Color.white),
+            ("Yellow", Color.yellow),
+            ("Green", Color.green),
+            ("Cyan", Color.cyan)
+        };
+        
+        for (int i = 0; i < presetColors.Length; i++)
+        {
+            var (colorName, color) = presetColors[i];
+            var rect = new Rect(buttonRect.x + i * (buttonWidth + 10f), buttonRect.y, buttonWidth, 30f);
+            
+            if (Widgets.ButtonText(rect, colorName))
+            {
+                Settings.TextColor = color;
+                Settings.Write();
+            }
+        }
+        
+        // RGBスライダー
+        listing.Gap();
+        DrawColorSlider(listing, "Red", ref Settings.TextColorR);
+        DrawColorSlider(listing, "Green", ref Settings.TextColorG);
+        DrawColorSlider(listing, "Blue", ref Settings.TextColorB);
+        DrawColorSlider(listing, "Alpha", ref Settings.TextColorA);
+        
+        listing.Gap();
+    }
+
+    private void DrawColorSlider(Listing_Standard listing, string label, ref float value)
+    {
+        listing.Label($"  {label}: {value:F2}"); // インデントを追加
+        float newValue = listing.Slider(value, 0.0f, 1.0f);
+        if (Math.Abs(newValue - value) > 0.001f)
+        {
+            value = newValue;
+            Settings.Write();
+        }
+    }
+
     private void DrawUsageInstructions(Listing_Standard listing)
     {
+        DrawSectionTitleWithUnderline(listing, "How to Use"); // 下線付きスタイルを使用
+        
         var instructions = new[]
         {
-            "How to use:",
             "• Drag the title bar (top edge) to move the overlay",
             "• Drag the bottom-right corner to resize",
             "• Use the Filters tab to control which logs appear",
-            "• The overlay appears behind game UI elements"
+            "• Use the Speakers tab to filter by specific speakers",
+            "• Change display layer to show behind/above UI elements"
         };
 
         foreach (var instruction in instructions)
@@ -152,9 +372,190 @@ public class ChatOverlayMod : Mod
         }
     }
 
+    private void DrawSpeakersTab(Listing_Standard listing, Rect inRect)
+    {
+        DrawSectionTitle(listing, "Speaker Filter");
+        
+        bool prevEnable = Settings.EnableSpeakerFilter;
+        listing.CheckboxLabeled("Enable speaker filtering", ref Settings.EnableSpeakerFilter);
+        if (prevEnable != Settings.EnableSpeakerFilter)
+        {
+            Settings.Write();
+        }
+
+        if (Settings.EnableSpeakerFilter)
+        {
+            listing.Gap();
+            DrawSpeakerControlButtons(listing);
+            listing.Gap();
+            DrawSpeakersSection(listing, inRect);
+        }
+        else
+        {
+            listing.Gap();
+            listing.Label("Speaker filtering is currently disabled.");
+            listing.Label("Enable it to filter interaction logs by specific speakers.");
+            listing.Gap();
+            
+            // プレビュー情報
+            var speakers = GetCurrentSpeakers();
+            if (speakers.Count > 0)
+            {
+                listing.Label($"Current speakers in colony: {speakers.Count}");
+                var previewSpeakers = speakers.Take(5).ToArray();
+                foreach (var speaker in previewSpeakers)
+                {
+                    listing.Label($"  • {speaker}");
+                }
+                if (speakers.Count > 5)
+                {
+                    listing.Label($"  • ... and {speakers.Count - 5} more");
+                }
+            }
+            else
+            {
+                listing.Label("No speakers found in current colony.");
+                listing.Label("(Note: Speakers will appear when you have active pawns)");
+            }
+        }
+    }
+
+    private void DrawSpeakerControlButtons(Listing_Standard listing)
+    {
+        var buttonRect = listing.GetRect(30f);
+        float buttonWidth = (buttonRect.width - 9f) / 2f;
+
+        var buttons = new (string Label, Action Action)[]
+        {
+            ("Select All Speakers", () => {
+                foreach (var speaker in GetCurrentSpeakers())
+                    Settings.SpeakerNameSet.Add(speaker);
+                Settings.Write();
+            }),
+            ("Clear All Speakers", () => {
+                Settings.SpeakerNameSet.Clear();
+                Settings.Write();
+            })
+        };
+
+        for (int i = 0; i < buttons.Length; i++)
+        {
+            var (label, action) = buttons[i];
+            var rect = new Rect(buttonRect.x + i * (buttonWidth + 9f), buttonRect.y, buttonWidth, 30f);
+            if (Widgets.ButtonText(rect, label))
+                action();
+        }
+    }
+
+    private void DrawSpeakersSection(Listing_Standard listing, Rect inRect)
+    {
+        listing.Label("Speakers in colony - check to include:");
+        var searchRect = listing.GetRect(24f);
+        _searchSpeakers = Widgets.TextField(searchRect, _searchSpeakers ?? "");
+        
+        var speakers = GetCurrentSpeakers().OrderBy(s => s).ToList();
+        
+        if (speakers.Count == 0)
+        {
+            listing.Label("No speakers found in current colony.");
+            listing.Label("(Note: This list updates automatically when pawns are added/removed)");
+            return;
+        }
+        
+        var remainingHeight = inRect.height - listing.CurHeight - 50f;
+        var boxRect = listing.GetRect(Mathf.Max(200f, remainingHeight));
+        Widgets.DrawBox(boxRect);
+        
+        var innerRect = new Rect(0, 0, boxRect.width - 16f, Mathf.Max(200f, speakers.Count * 28f));
+        Widgets.BeginScrollView(boxRect, ref _scrollSpeakers, innerRect);
+        
+        float y = 0f;
+        foreach (var speaker in speakers)
+        {
+            if (!IsSpeakerVisible(speaker, _searchSpeakers)) continue;
+
+            bool isSelected = Settings.SpeakerNameSet.Contains(speaker);
+            var row = new Rect(0, y, innerRect.width, 24f);
+            bool prev = isSelected;
+            
+            Widgets.CheckboxLabeled(row, speaker, ref isSelected);
+            
+            if (isSelected) Settings.SpeakerNameSet.Add(speaker);
+            else Settings.SpeakerNameSet.Remove(speaker);
+            
+            if (prev != isSelected) Settings.Write();
+            y += 24f;
+        }
+        Widgets.EndScrollView();
+    }
+
+    private HashSet<string> GetCurrentSpeakers()
+    {
+        var speakers = new HashSet<string>();
+        
+        try
+        {
+            if (Current.Game?.Maps == null) return speakers;
+            
+            foreach (var map in Current.Game.Maps)
+            {
+                if (map?.mapPawns?.FreeColonists == null) continue;
+                
+                // 自由なコロニストのみを対象
+                foreach (var pawn in map.mapPawns.FreeColonists)
+                {
+                    if (pawn?.LabelShortCap != null && !pawn.Dead)
+                    {
+                        speakers.Add(pawn.LabelShortCap);
+                    }
+                }
+                
+                // 捕虜のコロニストも含める（プレイヤーが管理している場合）
+                foreach (var pawn in map.mapPawns.PrisonersOfColony)
+                {
+                    if (pawn?.LabelShortCap != null && pawn.Faction == Faction.OfPlayer && !pawn.Dead)
+                    {
+                        speakers.Add(pawn.LabelShortCap);
+                    }
+                }
+            }
+            
+            // キャラバン中のコロニストを含める
+            if (Current.Game.World?.worldPawns != null)
+            {
+                foreach (var caravan in Find.WorldObjects.Caravans)
+                {
+                    if (caravan.Faction != Faction.OfPlayer) continue;
+                    
+                    foreach (var pawn in caravan.PawnsListForReading)
+                    {
+                        if (pawn?.LabelShortCap != null && pawn.IsColonist && !pawn.Dead)
+                        {
+                            speakers.Add(pawn.LabelShortCap);
+                        }
+                    }
+                }
+            }
+        }
+        catch (System.Exception ex)
+        {
+            Log.Warning($"[ChatOverlay] Failed to get current speakers: {ex.Message}");
+        }
+        
+        return speakers;
+    }
+
+    private static bool IsSpeakerVisible(string speaker, string searchTerm)
+    {
+        if (string.IsNullOrEmpty(searchTerm)) return true;
+        
+        var term = searchTerm.ToLowerInvariant();
+        return speaker.ToLowerInvariant().Contains(term);
+    }
+
     private void DrawFilterModeSelection(Listing_Standard listing)
     {
-        listing.Label("Filter mode");
+        DrawSectionTitle(listing, "Filter Mode");
         
         var modes = new[]
         {
@@ -202,8 +603,7 @@ public class ChatOverlayMod : Mod
 
     private void DrawAdvancedTab(Listing_Standard listing, Rect inRect)
     {
-        listing.Label("Advanced Settings");
-        listing.Gap();
+        DrawSectionTitle(listing, "Advanced Settings");
 
         if (Settings.Mode == ChatOverlayFilterMode.Whitelist)
         {
@@ -249,7 +649,7 @@ public class ChatOverlayMod : Mod
 
     private void DrawInteractionDefsSection(Listing_Standard listing, Rect inRect)
     {
-        listing.Label("Interaction types (InteractionDef.defName)");
+        DrawSectionTitle(listing, "Interaction Types");
         listing.Label("Note: These settings are for fine-tuning specific interaction types.");
         
         var searchRect = listing.GetRect(24f);
@@ -265,7 +665,8 @@ public class ChatOverlayMod : Mod
 
     private void DrawModsSection(Listing_Standard listing, Rect inRect)
     {
-        listing.Label("Mods (packageId) - check to include");
+        DrawSectionTitle(listing, "Mods");
+        listing.Label("Check mods to include their interaction logs:");
         var searchRect = listing.GetRect(24f);
         _searchMods = Widgets.TextField(searchRect, _searchMods ?? "");
         
