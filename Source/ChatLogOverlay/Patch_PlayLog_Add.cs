@@ -220,12 +220,31 @@ public static class ChatOverlayRenderer
     }
 }
 
+// 標準レイヤー（MainTabsの後）
 [HarmonyPatch(typeof(MapInterface), "MapInterfaceOnGUI_AfterMainTabs")]
-public static class MapInterface_OnGUI_Patch
+public static class MapInterface_OnGUI_AfterMainTabs_Patch
 {
     static void Prefix()
     {
-        ChatOverlayRenderer.DrawOverlay();
+        var settings = ChatOverlayMod.Settings;
+        if (settings?.DisplayLayer == ChatOverlayDisplayLayer.Standard)
+        {
+            ChatOverlayRenderer.DrawOverlay();
+        }
+    }
+}
+
+// 背景レイヤー（コマンドボタンなどより後ろ）
+[HarmonyPatch(typeof(MapInterface), "MapInterfaceOnGUI_BeforeMainTabs")]
+public static class MapInterface_OnGUI_BeforeMainTabs_Patch
+{
+    static void Prefix()
+    {
+        var settings = ChatOverlayMod.Settings;
+        if (settings?.DisplayLayer == ChatOverlayDisplayLayer.Background)
+        {
+            ChatOverlayRenderer.DrawOverlay();
+        }
     }
 }
 

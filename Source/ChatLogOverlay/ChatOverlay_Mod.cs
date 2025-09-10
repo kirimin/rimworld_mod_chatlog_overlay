@@ -103,6 +103,7 @@ public class ChatOverlayMod : Mod
         listing.Gap();
 
         DrawOpacitySlider(listing);
+        DrawDisplayLayerSelection(listing);
         DrawUsageInstructions(listing);
     }
 
@@ -118,6 +119,27 @@ public class ChatOverlayMod : Mod
         listing.Gap();
     }
 
+    private void DrawDisplayLayerSelection(Listing_Standard listing)
+    {
+        listing.Label("Display Layer");
+        
+        var layers = new[]
+        {
+            (ChatOverlayDisplayLayer.Standard, "Standard"),
+            (ChatOverlayDisplayLayer.Background, "Background (behind all UI elements)")
+        };
+
+        foreach (var (layer, label) in layers)
+        {
+            if (listing.RadioButton(label, Settings.DisplayLayer == layer) && Settings.DisplayLayer != layer)
+            {
+                Settings.DisplayLayer = layer;
+                Settings.Write();
+            }
+        }
+        listing.Gap();
+    }
+
     private void DrawUsageInstructions(Listing_Standard listing)
     {
         var instructions = new[]
@@ -126,7 +148,7 @@ public class ChatOverlayMod : Mod
             "• Drag the title bar (top edge) to move the overlay",
             "• Drag the bottom-right corner to resize",
             "• Use the Filters tab to control which logs appear",
-            "• The overlay appears behind game UI elements"
+            "• Change display layer to show behind/above UI elements"
         };
 
         foreach (var instruction in instructions)

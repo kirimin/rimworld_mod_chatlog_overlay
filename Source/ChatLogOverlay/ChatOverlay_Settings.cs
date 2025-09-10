@@ -8,6 +8,12 @@ public enum ChatOverlayFilterMode
     Blacklist
 }
 
+public enum ChatOverlayDisplayLayer
+{
+    Standard,   // 現在の位置（MainTabsの後）
+    Background  // より下位レイヤー（コマンドボタンなどの後ろ）
+}
+
 public class ChatOverlaySettings : ModSettings
 {
     public ChatOverlayFilterMode Mode = ChatOverlayFilterMode.Off;
@@ -19,6 +25,7 @@ public class ChatOverlaySettings : ModSettings
     public float OverlayW = -1f;
     public float OverlayH = -1f;
     public float BackgroundOpacity = 0.35f;
+    public ChatOverlayDisplayLayer DisplayLayer = ChatOverlayDisplayLayer.Standard;
 
     private List<string> _pkgTmp;
     private List<string> _defTmp;
@@ -33,6 +40,7 @@ public class ChatOverlaySettings : ModSettings
         Scribe_Values.Look(ref OverlayW, "OverlayW", -1f);
         Scribe_Values.Look(ref OverlayH, "OverlayH", -1f);
         Scribe_Values.Look(ref BackgroundOpacity, "BackgroundOpacity", 0.35f);
+        Scribe_Values.Look(ref DisplayLayer, "DisplayLayer", ChatOverlayDisplayLayer.Standard);
 
         ExposeHashSets();
     }
