@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using UnityEngine;
 using Verse;
 
 public enum ChatOverlayFilterMode
@@ -23,6 +24,13 @@ public enum SpeakerNameFormat
     Colon        // Name:
 }
 
+public enum ChatFontSize
+{
+    Tiny,    // GameFont.Tiny
+    Small,   // GameFont.Small
+    Medium   // GameFont.Medium
+}
+
 public class ChatOverlaySettings : ModSettings
 {
     public ChatOverlayFilterMode Mode = ChatOverlayFilterMode.Off;
@@ -37,11 +45,45 @@ public class ChatOverlaySettings : ModSettings
     public ChatOverlayDisplayLayer DisplayLayer = ChatOverlayDisplayLayer.Standard;
     public bool ShowSpeakerName = true; // 発言者名の表示設定
     public SpeakerNameFormat NameFormat = SpeakerNameFormat.Japanese; // 発言者名の形式
+    
+    // 新しい設定項目
+    public ChatFontSize FontSize = ChatFontSize.Small; // フォントサイズ
+    public float TextColorR = 1.0f; // 文字色（赤）
+    public float TextColorG = 1.0f; // 文字色（緑）
+    public float TextColorB = 1.0f; // 文字色（青）
+    public float TextColorA = 1.0f; // 文字色（透明度）
 
     private List<string> _pkgTmp;
     private List<string> _defTmp;
 
     public bool HasValidOverlayRect => OverlayX >= 0f && OverlayY >= 0f && OverlayW > 0f && OverlayH > 0f;
+    
+    public Color TextColor
+    {
+        get => new Color(TextColorR, TextColorG, TextColorB, TextColorA);
+        set
+        {
+            TextColorR = value.r;
+            TextColorG = value.g;
+            TextColorB = value.b;
+            TextColorA = value.a;
+        }
+    }
+    
+    public GameFont GetGameFont()
+    {
+        switch (FontSize)
+        {
+            case ChatFontSize.Tiny:
+                return GameFont.Tiny;
+            case ChatFontSize.Small:
+                return GameFont.Small;
+            case ChatFontSize.Medium:
+                return GameFont.Medium;
+            default:
+                return GameFont.Small;
+        }
+    }
 
     public override void ExposeData()
     {
@@ -54,6 +96,11 @@ public class ChatOverlaySettings : ModSettings
         Scribe_Values.Look(ref DisplayLayer, "DisplayLayer", ChatOverlayDisplayLayer.Standard);
         Scribe_Values.Look(ref ShowSpeakerName, "ShowSpeakerName", true);
         Scribe_Values.Look(ref NameFormat, "NameFormat", SpeakerNameFormat.Japanese);
+        Scribe_Values.Look(ref FontSize, "FontSize", ChatFontSize.Small);
+        Scribe_Values.Look(ref TextColorR, "TextColorR", 1.0f);
+        Scribe_Values.Look(ref TextColorG, "TextColorG", 1.0f);
+        Scribe_Values.Look(ref TextColorB, "TextColorB", 1.0f);
+        Scribe_Values.Look(ref TextColorA, "TextColorA", 1.0f);
 
         ExposeHashSets();
     }

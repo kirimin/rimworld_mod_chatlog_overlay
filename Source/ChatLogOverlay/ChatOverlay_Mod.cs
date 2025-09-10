@@ -12,6 +12,7 @@ public class ChatOverlayMod : Mod
 
     private Vector2 _scrollMods;
     private Vector2 _scrollDefs;
+    private Vector2 _scrollGeneral; // Generalタブ用のスクロール変数を追加
     private string _searchMods = "";
     private string _searchDefs = "";
     
@@ -89,6 +90,25 @@ public class ChatOverlayMod : Mod
 
     private void DrawGeneralTab(Listing_Standard listing, Rect inRect)
     {
+        var availableHeight = inRect.height - listing.CurHeight - 10f;
+        var scrollRect = listing.GetRect(availableHeight);
+        
+        // 十分に大きな高さを確保（RimWorldの標準的な手法）
+        var viewRect = new Rect(0, 0, scrollRect.width - 16f, 1500f);
+        Widgets.BeginScrollView(scrollRect, ref _scrollGeneral, viewRect);
+        
+        var contentListing = new Listing_Standard();
+        contentListing.Begin(viewRect);
+        
+        DrawGeneralTabContent(contentListing);
+        
+        contentListing.End();
+        Widgets.EndScrollView();
+    }
+
+    private void DrawGeneralTabContent(Listing_Standard listing)
+    {
+        // コントロールボタン
         bool isVisible = ChatOverlayRenderer.IsVisible;
         string btnLabel = isVisible ? "Hide Overlay" : "Show Overlay";
         if (Widgets.ButtonText(listing.GetRect(30f), btnLabel))
@@ -102,9 +122,12 @@ public class ChatOverlayMod : Mod
         }
         listing.Gap();
 
+        // 設定項目
         DrawOpacitySlider(listing);
         DrawDisplayLayerSelection(listing);
         DrawSpeakerNameOption(listing);
+        DrawFontSizeSelection(listing);
+        DrawTextColorPicker(listing);
         DrawUsageInstructions(listing);
     }
 
@@ -174,6 +197,86 @@ public class ChatOverlayMod : Mod
         }
         
         listing.Gap();
+    }
+
+    private void DrawFontSizeSelection(Listing_Standard listing)
+    {
+        listing.Label("Font Size");
+        
+        var fontSizes = new[]
+        {
+            (ChatFontSize.Tiny, "Tiny"),
+            (ChatFontSize.Small, "Small"),
+            (ChatFontSize.Medium, "Medium")
+        };
+
+        foreach (var (fontSize, label) in fontSizes)
+        {
+            if (listing.RadioButton(label, Settings.FontSize == fontSize) && Settings.FontSize != fontSize)
+            {
+                Settings.FontSize = fontSize;
+                Settings.Write();
+                
+                // フォントサイズ変更時に高さキャッシュをクリア
+                ChatOverlayRenderer.ClearHeightCache();
+            }
+        }
+        listing.Gap();
+    }
+
+    private void DrawTextColorPicker(Listing_Standard listing)
+    {
+        listing.Label("Text Color");
+        
+        // 色プレビュー
+        var colorPreviewRect = listing.GetRect(30f);
+        var previewRect = new Rect(colorPreviewRect.x, colorPreviewRect.y, 100f, 30f);
+        Widgets.DrawBoxSolid(previewRect, Settings.TextColor);
+        Widgets.DrawBox(previewRect);
+        
+        // プリセット色ボタン
+        var buttonRect = new Rect(previewRect.xMax + 10f, previewRect.y, colorPreviewRect.width - previewRect.width - 10f, 30f);
+        float buttonWidth = (buttonRect.width - 30f) / 4f;
+        
+        var presetColors = new[]
+        {
+            ("White", Color.white),
+            ("Yellow", Color.yellow),
+            ("Green", Color.green),
+            ("Cyan", Color.cyan)
+        };
+        
+        for (int i = 0; i < presetColors.Length; i++)
+        {
+            var (colorName, color) = presetColors[i];
+            var rect = new Rect(buttonRect.x + i * (buttonWidth + 10f), buttonRect.y, buttonWidth, 30f);
+            
+            if (Widgets.ButtonText(rect, colorName))
+            {
+                Settings.TextColor = color;
+                Settings.Write();
+            }
+        }
+        
+        // RGBスライダー
+        listing.Gap();
+        DrawColorSlider(listing, "Red", ref Settings.TextColorR);
+        DrawColorSlider(listing, "Green", ref Settings.TextColorG);
+        DrawColorSlider(listing, "Blue", ref Settings.TextColorB);
+        DrawColorSlider(listing, "Alpha", ref Settings.TextColorA);
+        
+        listing.Gap();
+    }
+
+    private void DrawColorSlider(Listing_Standard listing, string label, ref float value)
+    {
+        listing.Label($"{label}: {value:F2}");
+        float newValue = listing.Slider(value, 0.0f, 1.0f);
+        if (Math.Abs(newValue - value) > 0.001f)
+        {
+            value = newValue;
+            Settings.Write();
+        }
     }
 
     private void DrawUsageInstructions(Listing_Standard listing)

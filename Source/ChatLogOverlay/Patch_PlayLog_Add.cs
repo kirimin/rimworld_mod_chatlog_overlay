@@ -19,10 +19,11 @@ public static class ChatOverlayRenderer
     private static bool isVisible = true;
 
     // 高さキャッシュ関連の変数を追加
-    private static readonly Dictionary<(string text, float width), float> heightCache = 
-        new Dictionary<(string, float), float>();
+    private static readonly Dictionary<(string text, float width, GameFont font), float> heightCache = 
+        new Dictionary<(string, float, GameFont), float>();
     private static float lastTextWidth = -1f;
     private static int lastCachedRevision = -1;
+    private static GameFont lastCachedFont = GameFont.Small;
     private static float[] cachedLineHeights;
     private static float cachedContentHeight;
 
@@ -58,6 +59,14 @@ public static class ChatOverlayRenderer
         set => isVisible = value; 
     }
 
+    // 高さキャッシュをクリアする公開メソッド
+    public static void ClearHeightCache()
+    {
+        heightCache.Clear();
+        lastCachedRevision = -1;
+        cachedLineHeights = null;
+    }
+
     public static void DrawOverlay()
     {
         if (!isVisible) return;
@@ -77,24 +86,32 @@ public static class ChatOverlayRenderer
         var prevFont = Text.Font;
         var prevAnchor = Text.Anchor;
         var prevWrap = Text.WordWrap;
+        var prevColor = GUI.color;
 
-        Text.Font = GameFont.Small;
+        // 設定からフォントと色を適用
+        GameFont currentFont = settings?.GetGameFont() ?? GameFont.Small;
+        Color textColor = settings?.TextColor ?? Color.white;
+        
+        Text.Font = currentFont;
         Text.Anchor = TextAnchor.UpperLeft;
         Text.WordWrap = true;
+        GUI.color = textColor;
 
         float textWidth = view.width - 16f;
         
-        // 高さキャッシュの更新判定
+        // 高さキャッシュの更新判定（フォントサイズも考慮）
         bool needsHeightRecalc = revision != lastCachedRevision || 
                                 Mathf.Abs(textWidth - lastTextWidth) > 0.1f ||
+                                currentFont != lastCachedFont ||
                                 cachedLineHeights == null ||
                                 cachedLineHeights.Length != lines.Count;
 
         if (needsHeightRecalc)
         {
-            UpdateHeightCache(lines, textWidth);
+            UpdateHeightCache(lines, textWidth, currentFont);
             lastCachedRevision = revision;
             lastTextWidth = textWidth;
+            lastCachedFont = currentFont;
         }
 
         if (revision != lastRevision && wasAtBottom)
@@ -115,6 +132,7 @@ public static class ChatOverlayRenderer
         Text.Font = prevFont;
         Text.Anchor = prevAnchor;
         Text.WordWrap = prevWrap;
+        GUI.color = prevColor;
 
         lastRevision = revision;
         lastContentHeight = cachedContentHeight;
@@ -125,7 +143,7 @@ public static class ChatOverlayRenderer
         DrawResizeHandle();
     }
 
-    private static void UpdateHeightCache(ReadOnlyCollection<string> lines, float textWidth)
+    private static void UpdateHeightCache(ReadOnlyCollection<string> lines, float textWidth, GameFont font)
     {
         // 古いキャッシュエントリをクリア（メモリリーク防止）
         if (heightCache.Count > 1000)
@@ -138,7 +156,7 @@ public static class ChatOverlayRenderer
 
         for (int i = 0; i < lines.Count; i++)
         {
-            var key = (lines[i], textWidth);
+            var key = (lines[i], textWidth, font);
             if (!heightCache.TryGetValue(key, out float height))
             {
                 height = Text.CalcHeight(lines[i], textWidth);
