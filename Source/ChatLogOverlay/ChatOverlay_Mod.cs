@@ -104,6 +104,7 @@ public class ChatOverlayMod : Mod
 
         DrawOpacitySlider(listing);
         DrawDisplayLayerSelection(listing);
+        DrawSpeakerNameOption(listing);
         DrawUsageInstructions(listing);
     }
 
@@ -137,6 +138,41 @@ public class ChatOverlayMod : Mod
                 Settings.Write();
             }
         }
+        listing.Gap();
+    }
+
+    private void DrawSpeakerNameOption(Listing_Standard listing)
+    {
+        bool prevValue = Settings.ShowSpeakerName;
+        listing.CheckboxLabeled("Show speaker name", ref Settings.ShowSpeakerName);
+        if (prevValue != Settings.ShowSpeakerName)
+        {
+            Settings.Write();
+        }
+
+        if (Settings.ShowSpeakerName)
+        {
+            listing.Label("Speaker name format:");
+            
+            var formats = new[]
+            {
+                (SpeakerNameFormat.Japanese, "Japanese style (【Name】)"),
+                (SpeakerNameFormat.Square, "Square brackets ([Name])"),
+                (SpeakerNameFormat.Parentheses, "Parentheses ((Name))"),
+                (SpeakerNameFormat.Angle, "Angle brackets (<Name>)"),
+                (SpeakerNameFormat.Colon, "Colon (Name:)")
+            };
+
+            foreach (var (format, label) in formats)
+            {
+                if (listing.RadioButton(label, Settings.NameFormat == format) && Settings.NameFormat != format)
+                {
+                    Settings.NameFormat = format;
+                    Settings.Write();
+                }
+            }
+        }
+        
         listing.Gap();
     }
 

@@ -280,8 +280,38 @@ public static class Patch_PlayLog_Add
         if (string.IsNullOrEmpty(body))
             return null;
 
-        string name = GetSubjectName(subjectPawn, initiator, recipient);
-        return $"【{name}】{body}";
+        var settings = ChatOverlayMod.Settings;
+        bool showSpeakerName = settings?.ShowSpeakerName ?? true;
+
+        if (showSpeakerName)
+        {
+            string name = GetSubjectName(subjectPawn, initiator, recipient);
+            string formattedName = FormatSpeakerName(name, settings?.NameFormat ?? SpeakerNameFormat.Japanese);
+            return $"{formattedName}{body}";
+        }
+        else
+        {
+            return body;
+        }
+    }
+
+    private static string FormatSpeakerName(string name, SpeakerNameFormat format)
+    {
+        switch (format)
+        {
+            case SpeakerNameFormat.Japanese:
+                return $"【{name}】";
+            case SpeakerNameFormat.Square:
+                return $"[{name}] ";
+            case SpeakerNameFormat.Parentheses:
+                return $"({name}) ";
+            case SpeakerNameFormat.Angle:
+                return $"<{name}> ";
+            case SpeakerNameFormat.Colon:
+                return $"{name}: ";
+            default:
+                return $"【{name}】";
+        }
     }
 
     private static string GetSubjectName(Pawn subject, Thing initiator, Thing recipient)

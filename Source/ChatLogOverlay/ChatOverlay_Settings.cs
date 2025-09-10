@@ -14,6 +14,15 @@ public enum ChatOverlayDisplayLayer
     Background  // より下位レイヤー（コマンドボタンなどの後ろ）
 }
 
+public enum SpeakerNameFormat
+{
+    Japanese,    // 【Name】
+    Square,      // [Name]
+    Parentheses, // (Name)
+    Angle,       // <Name>
+    Colon        // Name:
+}
+
 public class ChatOverlaySettings : ModSettings
 {
     public ChatOverlayFilterMode Mode = ChatOverlayFilterMode.Off;
@@ -26,6 +35,8 @@ public class ChatOverlaySettings : ModSettings
     public float OverlayH = -1f;
     public float BackgroundOpacity = 0.35f;
     public ChatOverlayDisplayLayer DisplayLayer = ChatOverlayDisplayLayer.Standard;
+    public bool ShowSpeakerName = true; // 発言者名の表示設定
+    public SpeakerNameFormat NameFormat = SpeakerNameFormat.Japanese; // 発言者名の形式
 
     private List<string> _pkgTmp;
     private List<string> _defTmp;
@@ -41,6 +52,8 @@ public class ChatOverlaySettings : ModSettings
         Scribe_Values.Look(ref OverlayH, "OverlayH", -1f);
         Scribe_Values.Look(ref BackgroundOpacity, "BackgroundOpacity", 0.35f);
         Scribe_Values.Look(ref DisplayLayer, "DisplayLayer", ChatOverlayDisplayLayer.Standard);
+        Scribe_Values.Look(ref ShowSpeakerName, "ShowSpeakerName", true);
+        Scribe_Values.Look(ref NameFormat, "NameFormat", SpeakerNameFormat.Japanese);
 
         ExposeHashSets();
     }
