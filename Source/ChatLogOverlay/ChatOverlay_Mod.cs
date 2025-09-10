@@ -58,6 +58,68 @@ public class ChatOverlayMod : Mod
         listing.End();
     }
 
+    // タイトル描画用のヘルパーメソッド
+    private void DrawSectionTitle(Listing_Standard listing, string title)
+    {
+        var prevFont = Text.Font;
+        var prevColor = GUI.color;
+        
+        Text.Font = GameFont.Medium; // より大きなフォント
+        GUI.color = new Color(0.9f, 0.9f, 0.6f, 1f); // 少し黄色がかった色で強調
+        
+        listing.Label(title);
+        
+        Text.Font = prevFont;
+        GUI.color = prevColor;
+        
+        listing.Gap(6f); // タイトル後に小さなギャップ
+    }
+
+    // 代替案：下線付きタイトル
+    private void DrawSectionTitleWithUnderline(Listing_Standard listing, string title)
+    {
+        var prevFont = Text.Font;
+        var prevColor = GUI.color;
+        
+        Text.Font = GameFont.Small;
+        GUI.color = Color.white;
+        
+        var titleRect = listing.GetRect(Text.LineHeight);
+        Widgets.Label(titleRect, title);
+        
+        // 下線を描画
+        var underlineRect = new Rect(titleRect.x, titleRect.yMax - 1f, titleRect.width * 0.8f, 1f);
+        Widgets.DrawBoxSolid(underlineRect, new Color(0.7f, 0.7f, 0.7f, 0.8f));
+        
+        Text.Font = prevFont;
+        GUI.color = prevColor;
+        
+        listing.Gap(8f);
+    }
+
+    // 代替案：インデント付きタイトル
+    private void DrawSectionTitleIndented(Listing_Standard listing, string title)
+    {
+        var prevFont = Text.Font;
+        var prevColor = GUI.color;
+        
+        Text.Font = GameFont.Small;
+        GUI.color = new Color(0.8f, 0.8f, 1f, 1f); // 薄い青色
+        
+        var titleRect = listing.GetRect(Text.LineHeight);
+        var indentedRect = new Rect(titleRect.x - 8f, titleRect.y, titleRect.width, titleRect.height);
+        
+        // 背景を少し暗くする
+        Widgets.DrawBoxSolid(indentedRect.ExpandedBy(4f, 2f), new Color(0f, 0f, 0f, 0.1f));
+        
+        Widgets.Label(titleRect, $"■ {title}"); // 記号を付けて強調
+        
+        Text.Font = prevFont;
+        GUI.color = prevColor;
+        
+        listing.Gap(6f);
+    }
+
     private void DrawTabButtons(Listing_Standard listing)
     {
         var tabRect = listing.GetRect(30f);
@@ -122,7 +184,7 @@ public class ChatOverlayMod : Mod
         }
         listing.Gap();
 
-        // 設定項目
+        // 設定項目（タイトルを強調）
         DrawOpacitySlider(listing);
         DrawDisplayLayerSelection(listing);
         DrawSpeakerNameOption(listing);
@@ -133,7 +195,9 @@ public class ChatOverlayMod : Mod
 
     private void DrawOpacitySlider(Listing_Standard listing)
     {
-        listing.Label($"Background Opacity: {Settings.BackgroundOpacity:F2} (0.0 = Transparent, 1.0 = Opaque)");
+        DrawSectionTitle(listing, "Background Opacity");
+        
+        listing.Label($"Current: {Settings.BackgroundOpacity:F2} (0.0 = Transparent, 1.0 = Opaque)");
         float newOpacity = listing.Slider(Settings.BackgroundOpacity, 0.0f, 1.0f);
         if (Math.Abs(newOpacity - Settings.BackgroundOpacity) > 0.001f)
         {
@@ -145,7 +209,7 @@ public class ChatOverlayMod : Mod
 
     private void DrawDisplayLayerSelection(Listing_Standard listing)
     {
-        listing.Label("Display Layer");
+        DrawSectionTitle(listing, "Display Layer");
         
         var layers = new[]
         {
@@ -166,6 +230,8 @@ public class ChatOverlayMod : Mod
 
     private void DrawSpeakerNameOption(Listing_Standard listing)
     {
+        DrawSectionTitle(listing, "Speaker Name Settings");
+        
         bool prevValue = Settings.ShowSpeakerName;
         listing.CheckboxLabeled("Show speaker name", ref Settings.ShowSpeakerName);
         if (prevValue != Settings.ShowSpeakerName)
@@ -175,15 +241,24 @@ public class ChatOverlayMod : Mod
 
         if (Settings.ShowSpeakerName)
         {
-            listing.Label("Speaker name format:");
+            listing.Gap(4f);
+            
+            // サブタイトル用のインデント付きスタイル
+            var prevFont = Text.Font;
+            var prevColor = GUI.color;
+            Text.Font = GameFont.Tiny;
+            GUI.color = new Color(0.8f, 0.8f, 0.8f, 1f);
+            listing.Label("  Format:");
+            Text.Font = prevFont;
+            GUI.color = prevColor;
             
             var formats = new[]
             {
-                (SpeakerNameFormat.Japanese, "Japanese style (【Name】)"),
-                (SpeakerNameFormat.Square, "Square brackets ([Name])"),
-                (SpeakerNameFormat.Parentheses, "Parentheses ((Name))"),
-                (SpeakerNameFormat.Angle, "Angle brackets (<Name>)"),
-                (SpeakerNameFormat.Colon, "Colon (Name:)")
+                (SpeakerNameFormat.Japanese, "    Japanese style (【Name】)"),
+                (SpeakerNameFormat.Square, "    Square brackets ([Name])"),
+                (SpeakerNameFormat.Parentheses, "    Parentheses ((Name))"),
+                (SpeakerNameFormat.Angle, "    Angle brackets (<Name>)"),
+                (SpeakerNameFormat.Colon, "    Colon (Name:)")
             };
 
             foreach (var (format, label) in formats)
@@ -201,7 +276,7 @@ public class ChatOverlayMod : Mod
 
     private void DrawFontSizeSelection(Listing_Standard listing)
     {
-        listing.Label("Font Size");
+        DrawSectionTitle(listing, "Font Size");
         
         var fontSizes = new[]
         {
@@ -226,7 +301,7 @@ public class ChatOverlayMod : Mod
 
     private void DrawTextColorPicker(Listing_Standard listing)
     {
-        listing.Label("Text Color");
+        DrawSectionTitle(listing, "Text Color");
         
         // 色プレビュー
         var colorPreviewRect = listing.GetRect(30f);
@@ -270,7 +345,7 @@ public class ChatOverlayMod : Mod
 
     private void DrawColorSlider(Listing_Standard listing, string label, ref float value)
     {
-        listing.Label($"{label}: {value:F2}");
+        listing.Label($"  {label}: {value:F2}"); // インデントを追加
         float newValue = listing.Slider(value, 0.0f, 1.0f);
         if (Math.Abs(newValue - value) > 0.001f)
         {
@@ -281,9 +356,10 @@ public class ChatOverlayMod : Mod
 
     private void DrawUsageInstructions(Listing_Standard listing)
     {
+        DrawSectionTitleWithUnderline(listing, "How to Use"); // 下線付きスタイルを使用
+        
         var instructions = new[]
         {
-            "How to use:",
             "• Drag the title bar (top edge) to move the overlay",
             "• Drag the bottom-right corner to resize",
             "• Use the Filters tab to control which logs appear",
@@ -315,7 +391,7 @@ public class ChatOverlayMod : Mod
 
     private void DrawFilterModeSelection(Listing_Standard listing)
     {
-        listing.Label("Filter mode");
+        DrawSectionTitle(listing, "Filter Mode");
         
         var modes = new[]
         {
@@ -363,8 +439,7 @@ public class ChatOverlayMod : Mod
 
     private void DrawAdvancedTab(Listing_Standard listing, Rect inRect)
     {
-        listing.Label("Advanced Settings");
-        listing.Gap();
+        DrawSectionTitle(listing, "Advanced Settings");
 
         if (Settings.Mode == ChatOverlayFilterMode.Whitelist)
         {
@@ -410,7 +485,7 @@ public class ChatOverlayMod : Mod
 
     private void DrawInteractionDefsSection(Listing_Standard listing, Rect inRect)
     {
-        listing.Label("Interaction types (InteractionDef.defName)");
+        DrawSectionTitle(listing, "Interaction Types");
         listing.Label("Note: These settings are for fine-tuning specific interaction types.");
         
         var searchRect = listing.GetRect(24f);
@@ -426,7 +501,8 @@ public class ChatOverlayMod : Mod
 
     private void DrawModsSection(Listing_Standard listing, Rect inRect)
     {
-        listing.Label("Mods (packageId) - check to include");
+        DrawSectionTitle(listing, "Mods");
+        listing.Label("Check mods to include their interaction logs:");
         var searchRect = listing.GetRect(24f);
         _searchMods = Widgets.TextField(searchRect, _searchMods ?? "");
         
