@@ -36,6 +36,7 @@ public class ChatOverlaySettings : ModSettings
     public ChatOverlayFilterMode Mode = ChatOverlayFilterMode.Off;
     public HashSet<string> PackageIdSet = new HashSet<string>(System.StringComparer.OrdinalIgnoreCase);
     public HashSet<string> DefNameSet = new HashSet<string>(System.StringComparer.OrdinalIgnoreCase);
+    public HashSet<string> SpeakerNameSet = new HashSet<string>(System.StringComparer.OrdinalIgnoreCase); // 発言者フィルター
 
     public float OverlayX = -1f;
     public float OverlayY = -1f;
@@ -45,6 +46,7 @@ public class ChatOverlaySettings : ModSettings
     public ChatOverlayDisplayLayer DisplayLayer = ChatOverlayDisplayLayer.Standard;
     public bool ShowSpeakerName = true; // 発言者名の表示設定
     public SpeakerNameFormat NameFormat = SpeakerNameFormat.Japanese; // 発言者名の形式
+    public bool EnableSpeakerFilter = false; // 発言者フィルターの有効/無効
     
     // 新しい設定項目
     public ChatFontSize FontSize = ChatFontSize.Small; // フォントサイズ
@@ -55,6 +57,7 @@ public class ChatOverlaySettings : ModSettings
 
     private List<string> _pkgTmp;
     private List<string> _defTmp;
+    private List<string> _speakerTmp; // 発言者フィルター用
 
     public bool HasValidOverlayRect => OverlayX >= 0f && OverlayY >= 0f && OverlayW > 0f && OverlayH > 0f;
     
@@ -96,6 +99,7 @@ public class ChatOverlaySettings : ModSettings
         Scribe_Values.Look(ref DisplayLayer, "DisplayLayer", ChatOverlayDisplayLayer.Standard);
         Scribe_Values.Look(ref ShowSpeakerName, "ShowSpeakerName", true);
         Scribe_Values.Look(ref NameFormat, "NameFormat", SpeakerNameFormat.Japanese);
+        Scribe_Values.Look(ref EnableSpeakerFilter, "EnableSpeakerFilter", false);
         Scribe_Values.Look(ref FontSize, "FontSize", ChatFontSize.Small);
         Scribe_Values.Look(ref TextColorR, "TextColorR", 1.0f);
         Scribe_Values.Look(ref TextColorG, "TextColorG", 1.0f);
@@ -111,10 +115,12 @@ public class ChatOverlaySettings : ModSettings
         {
             _pkgTmp = new List<string>(PackageIdSet);
             _defTmp = new List<string>(DefNameSet);
+            _speakerTmp = new List<string>(SpeakerNameSet);
         }
 
         Scribe_Collections.Look(ref _pkgTmp, "PackageIds", LookMode.Value);
         Scribe_Collections.Look(ref _defTmp, "DefNames", LookMode.Value);
+        Scribe_Collections.Look(ref _speakerTmp, "SpeakerNames", LookMode.Value);
 
         if (Scribe.mode == LoadSaveMode.PostLoadInit)
         {
@@ -126,6 +132,7 @@ public class ChatOverlaySettings : ModSettings
     {
         PackageIdSet.Clear();
         DefNameSet.Clear();
+        SpeakerNameSet.Clear();
 
         if (_pkgTmp != null)
         {
@@ -141,7 +148,15 @@ public class ChatOverlaySettings : ModSettings
                     DefNameSet.Add(s);
         }
 
+        if (_speakerTmp != null)
+        {
+            foreach (var s in _speakerTmp)
+                if (!string.IsNullOrEmpty(s))
+                    SpeakerNameSet.Add(s);
+        }
+
         _pkgTmp = null;
         _defTmp = null;
+        _speakerTmp = null;
     }
 }

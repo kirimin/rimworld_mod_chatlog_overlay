@@ -381,6 +381,7 @@ static class ModAssemblyIndex
     }
 }
 
+// ChatOverlayFilterクラスのShouldIncludeメソッドを修正
 static class ChatOverlayFilter
 {
     private static FieldInfo _fInteractionDef;
@@ -391,6 +392,17 @@ static class ChatOverlayFilter
     {
         var settings = ChatOverlayMod.Settings ?? new ChatOverlaySettings();
 
+        if (settings.Mode == ChatOverlayFilterMode.Off && !settings.EnableSpeakerFilter)
+            return true;
+
+        // 発言者フィルターのチェック
+        if (settings.EnableSpeakerFilter && entry is PlayLogEntry_Interaction inter)
+        {
+            if (!IsSpeakerAllowed(inter, settings))
+                return false;
+        }
+
+        // 既存のMOD/Defフィルター
         if (settings.Mode == ChatOverlayFilterMode.Off)
             return true;
 
@@ -398,9 +410,9 @@ static class ChatOverlayFilter
         string packageId = null;
         string asmName = entry?.GetType()?.Assembly?.GetName()?.Name;
 
-        if (entry is PlayLogEntry_Interaction inter)
+        if (entry is PlayLogEntry_Interaction interaction)
         {
-            var def = GetInteractionDef(inter);
+            var def = GetInteractionDef(interaction);
             defName = def?.defName;
             packageId = def?.modContentPack?.PackageId;
 
@@ -415,7 +427,7 @@ static class ChatOverlayFilter
                 
                 foreach (var field in fields)
                 {
-                    if (field.GetValue(inter) is InteractionDef interDef)
+                    if (field.GetValue(interaction) is InteractionDef interDef)
                     {
                         defName = interDef.defName;
                         packageId = interDef.modContentPack?.PackageId;
@@ -463,6 +475,39 @@ static class ChatOverlayFilter
             return !blocked;
         }
 
+        return true;
+    }
+
+    private static bool IsSpeakerAllowed(PlayLogEntry_Interaction inter, ChatOverlaySettings settings)
+    {
+        if (!settings.EnableSpeakerFilter || settings.SpeakerNameSet.Count == 0)
+            return true;
+
+        var F_Initiator = AccessTools.Field(typeof(PlayLogEntry_Interaction), "initiator");
+        var F_Recipient = AccessTools.Field(typeof(PlayLogEntry_Interaction), "recipient");
+        
+        var initiator = F_Initiator?.GetValue(inter) as Thing;
+        var recipient = F_Recipient?.GetValue(inter) as Thing;
+
+        var subjectPawn = initiator as Pawn ?? recipient as Pawn;
+        
+        if (subjectPawn?.LabelShortCap != null)
+        {
+            return settings.SpeakerNameSet.Contains(subjectPawn.LabelShortCap);
+        }
+        
+        // フォールバック: initiatorまたはrecipientがPawnの場合
+        if (initiator is Pawn ip && ip.LabelShortCap != null)
+        {
+            return settings.SpeakerNameSet.Contains(ip.LabelShortCap);
+        }
+        
+        if (recipient is Pawn rp && rp.LabelShortCap != null)
+        {
+            return settings.SpeakerNameSet.Contains(rp.LabelShortCap);
+        }
+
+        // 発言者が特定できない場合は通す
         return true;
     }
 
