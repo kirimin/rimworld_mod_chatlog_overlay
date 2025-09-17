@@ -303,10 +303,10 @@ public static class Patch_PlayLog_Add
 
     static void Postfix(LogEntry entry)
     {
-        if (!(entry is PlayLogEntry_Interaction inter) || !ChatOverlayFilter.ShouldInclude(entry))
+        if (!(entry is PlayLogEntry_Interaction) || !ChatOverlayFilter.ShouldInclude(entry))
             return;
 
-        string text = FormatInteraction(inter);
+        string text = FormatInteraction((PlayLogEntry_Interaction)entry);
         if (!string.IsNullOrEmpty(text))
         {
             ChatState.Push(text);
@@ -426,9 +426,15 @@ static class ChatOverlayFilter
         if (settings.Mode == ChatOverlayFilterMode.Off && !settings.EnableSpeakerFilter)
             return true;
 
-        if (settings.EnableSpeakerFilter && entry is PlayLogEntry_Interaction inter)
+        // Rimtalkログの特別処理
+        if (entry is PlayLogEntry_Interaction inter && IsRimtalkLog())
         {
-            if (!IsSpeakerAllowed(inter, settings))
+            return HandleRimtalkLog(settings);
+        }
+
+        if (settings.EnableSpeakerFilter && entry is PlayLogEntry_Interaction interaction)
+        {
+            if (!IsSpeakerAllowed(interaction, settings))
                 return false;
         }
 
@@ -439,9 +445,9 @@ static class ChatOverlayFilter
         string packageId = null;
         string asmName = entry?.GetType()?.Assembly?.GetName()?.Name;
 
-        if (entry is PlayLogEntry_Interaction interaction)
+        if (entry is PlayLogEntry_Interaction interactionEntry)
         {
-            var def = GetInteractionDef(interaction);
+            var def = GetInteractionDef(interactionEntry);
             defName = def?.defName;
             packageId = def?.modContentPack?.PackageId;
 
@@ -456,7 +462,7 @@ static class ChatOverlayFilter
                 
                 foreach (var field in fields)
                 {
-                    if (field.GetValue(interaction) is InteractionDef interDef)
+                    if (field.GetValue(interactionEntry) is InteractionDef interDef)
                     {
                         defName = interDef.defName;
                         packageId = interDef.modContentPack?.PackageId;
@@ -505,6 +511,33 @@ static class ChatOverlayFilter
         }
 
         return true;
+    }
+
+    private static bool IsRimtalkLog()
+    {
+        var stackTrace = new System.Diagnostics.StackTrace();
+        string stackString = stackTrace.ToString();
+        return stackString.Contains("RimTalk.Service.TalkService") || 
+               stackString.Contains("RimTalk.");
+    }
+
+    private static bool HandleRimtalkLog(ChatOverlaySettings settings)
+    {
+        switch (settings.Mode)
+        {
+            case ChatOverlayFilterMode.Off:
+                return true;
+            
+            case ChatOverlayFilterMode.Whitelist:
+                return settings.PackageIdSet.Count == 0 || 
+                       settings.PackageIdSet.Any(id => id.ToLowerInvariant().Contains("rimtalk"));
+            
+            case ChatOverlayFilterMode.Blacklist:
+                return !settings.PackageIdSet.Any(id => id.ToLowerInvariant().Contains("rimtalk"));
+            
+            default:
+                return true;
+        }
     }
 
     private static bool IsSpeakerAllowed(PlayLogEntry_Interaction inter, ChatOverlaySettings settings)
