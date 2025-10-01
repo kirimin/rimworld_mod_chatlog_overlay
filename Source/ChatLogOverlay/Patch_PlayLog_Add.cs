@@ -432,6 +432,12 @@ static class ChatOverlayFilter
             return HandleRimtalkLog(settings);
         }
 
+        // Rimindログの特別処理
+        if (entry is PlayLogEntry_Interaction inter2 && IsRimindLog())
+        {
+            return HandleRimindLog(settings);
+        }
+
         if (settings.EnableSpeakerFilter && entry is PlayLogEntry_Interaction interaction)
         {
             if (!IsSpeakerAllowed(interaction, settings))
@@ -521,6 +527,17 @@ static class ChatOverlayFilter
                stackString.Contains("RimTalk.");
     }
 
+    private static bool IsRimindLog()
+    {
+        var stackTrace = new System.Diagnostics.StackTrace();
+        string stackString = stackTrace.ToString();
+        bool isRimind = stackString.Contains("RiMind.Service.TalkService") ||
+                       stackString.Contains("RiMind.Patch.TickManager_DoSingleTick") ||
+                       stackString.Contains("RiMind.");
+        
+        return isRimind;
+    }
+
     private static bool HandleRimtalkLog(ChatOverlaySettings settings)
     {
         switch (settings.Mode)
@@ -534,6 +551,29 @@ static class ChatOverlayFilter
             
             case ChatOverlayFilterMode.Blacklist:
                 return !settings.PackageIdSet.Any(id => id.ToLowerInvariant().Contains("rimtalk"));
+            
+            default:
+                return true;
+        }
+    }
+
+    private static bool HandleRimindLog(ChatOverlaySettings settings)
+    {
+        switch (settings.Mode)
+        {
+            case ChatOverlayFilterMode.Off:
+                return true;
+            
+            case ChatOverlayFilterMode.Whitelist:
+                return settings.PackageIdSet.Count == 0 || 
+                       settings.PackageIdSet.Any(id => id.ToLowerInvariant().Contains("rimind") || 
+                                                      id.ToLowerInvariant().Contains("rimmind") ||
+                                                      id.ToLowerInvariant().Contains("rimind"));
+            
+            case ChatOverlayFilterMode.Blacklist:
+                return !settings.PackageIdSet.Any(id => id.ToLowerInvariant().Contains("rimind") || 
+                                                        id.ToLowerInvariant().Contains("rimmind") ||
+                                                        id.ToLowerInvariant().Contains("rimind"));
             
             default:
                 return true;
